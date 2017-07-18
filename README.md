@@ -59,7 +59,7 @@ The following columns are appended to the input maf.
 
 | Column Name        | Description           |
 | ------------- |:-------------|
-| key      | right-aligned |
+| key      | a unique key that can be used to find other peptides predicted for the same mutation (in `sample_processedcombinedNETMHCpan_out.txt`)  |
 | HLA | HLA allele to which this peptide is predicted to bind |
 | pep_length | length of the peptide |
 | pep_mut | mutated peptide |
@@ -72,7 +72,6 @@ The following columns are appended to the input maf.
 
 ## Example
 
-Load an example maf file and simulate:
 ```
 python neoantigen.py --config_file neoantigen-luna.config \
                      --normal_bam <normal.bam> \
