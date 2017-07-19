@@ -15,9 +15,7 @@ usage: neoantigen.py [-h] --config_file CONFIG_FILE [--normal_bam NORMAL_BAM]
                      [--hla_file HLA_FILE] [--keep_tmp_files]
                      [--force_rerun_polysolver] [--force_rerun_netmhc]
 
-Wrapper to execute Van-Allen lab's neoantigen pipeline. In its present state,
-this wrapper is primarily for preliminary analysis.  Many of paths to the scripts,
- binaries and data files are hard-coded (this will change later on).
+Wrapper to execute Van-Allen lab's neoantigen pipeline.
 
 optional arguments:
   -h, --help            show this help message and exit
