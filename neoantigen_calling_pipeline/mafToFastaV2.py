@@ -175,20 +175,34 @@ def MutationsToDNASeq(maf, length, patID, outpath, indicator):
         # Calculate coding strand start and end positions
         orig_start = 0
         orig_end = 0
-        row[10] = re.sub('\+\d', '', row[10])       # HGVSc annotates indels at translational start site with "+1" etc. just remove it.
+
         if indicator == 0:  # SNVs
+            # HGVSc annotates indels at translational start site with "+1" etc. just remove it.
+            row[10] = re.sub('\+\d', '', row[10])
+            row[10] = re.sub('\-\d', '', row[10])
             orig_start = int(((row[10].split('.')[1]).split('>')[0])[0:-1])-1 # Subtract because MAFs are 1-indexed but python is 0-indexed
             orig_end = orig_start # SNVs only affect one position
         else:  # InDels
-            split_by = 'ins'
-            if row[13] == 'DEL': # deletion
-                split_by = 'del'
-
-            orig_start = int(((row[10].split('.')[1]).split(split_by)[0]).split('_')[0])-1
-            if '_' in row[10]:
-                orig_end = int(eval((row[10].split(split_by)[0]).split('_')[1]))-1
-            else:
-                orig_end = orig_start
+            # HGVSc annotates indels at translational start site with "+1" etc. just remove it.
+            row[10] = re.sub('\+\d', '_', row[10])
+            row[10] = re.sub('\-\d', '_', row[10])
+            if indicator == 0:  # SNVs
+                orig_start = int(((row[10].split('.')[1]).split('>')[0])[
+                                 0:-1]) - 1  # Subtract because MAFs are 1-indexed but python is 0-indexed
+                orig_end = orig_start  # SNVs only affect one position
+            else:  # InDels
+                if row[13] == 'DEL':  # deletion
+                    orig_start = int(((row[10].split('.')[1]).split('del')[0]).split('_')[0]) - 1
+                    if '_' in row[10]:
+                        orig_end = int((row[10].split('del')[0]).split('_')[1]) - 1
+                    else:
+                        orig_end = orig_start
+                else:  # insertion
+                    orig_start = int(((row[10].split('.')[1]).split('ins')[0]).split('_')[0])
+                    if '_' in row[10]:
+                        orig_end = int((row[10].split('ins')[0]).split('_')[1]) - 1
+                    else:
+                        orig_end = orig_start
 
         # Calculate mutation length
         mut_length = len(row[15].strip())
@@ -273,7 +287,11 @@ def MutationsToDNASeq(maf, length, patID, outpath, indicator):
             nonstopseqlist = [mutatedseq]
             nonstopheaderlist = ['>seq_'+nonstopalphabet[nonstopcounter]+'_mut']
             nonstoppeptide, nonstoppepheader = DNASeqToProtein(nonstopseqlist, nonstopheaderlist, length/3)
+            if len(nonstoppepheader) == 0 or len(nonstoppeptide) == 0:
+                continue
+
             nonstopfilehandle = outpath+'/len'+str(length/3)+'pep_FASTA_indel.txt'
+
             f = open(nonstopfilehandle, 'a')
             f.write(nonstoppepheader[0]+'\n'+nonstoppeptide[0]+'\n')
             nonstopheadermapfile.write('>seq_'+nonstopalphabet[nonstopcounter]+'\t'+patID+'|'+row[7]+'|chr'+row[2]+':'+row[3]+'-'+row[4]+'|'+row[8]+'|'+row[0]+'|'+row[1]+'|'+row[10]+'|'+row[12]+'\n')
