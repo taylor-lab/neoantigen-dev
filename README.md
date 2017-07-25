@@ -11,26 +11,30 @@ git clone https://github.com/taylor-lab/neoantigen-dev.git
 ## Usage
 ```
 usage: neoantigen.py [-h] --config_file CONFIG_FILE [--normal_bam NORMAL_BAM]
-                     --maf_file MAF_FILE --output_dir OUTPUT_DIR
-                     [--hla_file HLA_FILE] [--keep_tmp_files]
+                     [--hla_file HLA_FILE] --maf_file MAF_FILE --sample_id
+                     SAMPLE_ID --output_dir OUTPUT_DIR [--keep_tmp_files]
                      [--force_rerun_polysolver] [--force_rerun_netmhc]
 
-Wrapper to execute Van-Allen lab's neoantigen pipeline.
+Wrapper to execute Van-Allen lab's neoantigen pipeline. In its present state,
+this wrapper is primarily for preliminary analysis.
 
 optional arguments:
   -h, --help            show this help message and exit
   --config_file CONFIG_FILE
-                        REQUIRED. 
+                        REQUIRED. See: neoantigen-luna.config in the repo
   --normal_bam NORMAL_BAM
-                        full path to normal bam file. mutually exclusive with
-                        --hla_file. One of the two is required.
+                        full path to normal bam file. Either --normal_bam or
+                        --hla_file are required.
+  --hla_file HLA_FILE   POLYSOLVER output file (winners.hla.txt) for the
+                        sample. If not provided,POLYSOLVER is run. Either
+                        --normal_bam or --hla_file are required.
   --maf_file MAF_FILE   REQUIRED. expects a CMO maf file (post vcf2maf.pl)
+  --sample_id SAMPLE_ID
+                        REQUIRED. sample_id used to limit neoantigen
+                        prediction to identify mutations associated with the
+                        patient in the MAF (column 16).
   --output_dir OUTPUT_DIR
                         REQUIRED. output directory
-  --hla_file HLA_FILE   polysolver output (winners.hla.txt) for the patient.
-                        If not provided, POLYSOLVER is run. Option mutually
-                        exclusive with --normal_bamfile. Either option is
-                        required
   --keep_tmp_files      keeps POLYSOLVER's temporary files. for debugging
                         purposes. Note: TMP files can be more than 5GB.
                         Default: true
@@ -40,6 +44,7 @@ optional arguments:
   --force_rerun_netmhc  ignores any existing netMHCpan output and re-runs it.
                         Default: false
 
+NOTES:  This pipeline is not optimized for run time efficiency.
 ```
 ## Output
 
@@ -50,7 +55,7 @@ optional arguments:
 
 ### Neoantigen binding affinties annotated MAF
 ```
-<output_dir>/<maf_file>.netMHCpan.neoantigens.maf  (only the peptide with the highest binding affinity is selected for each mutation) 
+<output_dir>/<sample_id>.netMHCpan.neoantigens.maf  (only the peptide with the highest binding affinity is selected for each mutation) 
 <output_dir>/sample_processedcombinedNETMHCpan_out.txt  (all predicted peptides for each mutation)
 ```
 The following columns are appended to the input maf.
@@ -72,6 +77,7 @@ The following columns are appended to the input maf.
 
 ```
 python neoantigen.py --config_file neoantigen-luna.config \
+                     --sample_id <sample_id> \
                      --normal_bam <normal.bam> \
                      --output_dir <output_dir> \
                      --maf_file <cmo_maf_file>
