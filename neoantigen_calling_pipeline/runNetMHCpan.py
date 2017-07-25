@@ -30,6 +30,7 @@ import numpy as np
 import subprocess
 import os
 from ConfigParser import ConfigParser
+import commands
 
 # ----------------------------------------------------------------------------------------------- #
 
@@ -204,7 +205,9 @@ def main():
 	# Run whichever netMHC version is desired
 	if versionchoice == '1':
 		for i in range(0, len(fastalist)):
-			runNetMHCIpan(fastalist[i], alleles, lengthslist[i], outpath)
+			num_seqs = commands.getoutput('cat ' + fastalist[i] + ' | grep seq_ | grep _mut | sort | uniq | wc -l')
+			if int(num_seqs) > 0:
+				runNetMHCIpan(fastalist[i], alleles, lengthslist[i], outpath)
 	else:
 		for i in range(0, len(fastalist)):
 			runNetMHCIIpan(fastalist[i], alleles, lengthslist[i], outpath)

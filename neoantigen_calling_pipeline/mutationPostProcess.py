@@ -19,6 +19,7 @@ import sys
 import numpy as np
 import subprocess
 import os
+import commands
 # ----------------------------------------------------------------------------------------------- #
 
 
@@ -193,14 +194,24 @@ def main():
 	netmhclist = list(map(str.strip, netmhcoutfiles.split(',')))
 	headerlist = list(map(str.strip, headermapfiles.split(',')))
 	lengthslist = list(map(str.strip, lengths.split(',')))
-        if len(netmhclist) != len(headerlist):
-                print 'Error: Please make sure your header map files correspond to the netMHC outfiles and are in the same order.'
-                sys.exit()
+	if len(netmhclist) != len(headerlist):
+			print 'Error: Please make sure your header map files correspond to the netMHC outfiles and are in the same order.'
+			sys.exit()
   	# Loop through each netMHC file and add in relevant information
 	procarrays = []
 	for i in range(0, len(netmhclist)):
-		curroutputprocessed = processSingleFileOutput(netmhclist[i], headerlist[i], lengthslist[i], patientID, version)
-		procarrays.append(curroutputprocessed)
+		num_muts_txt = commands.getoutput('cat ' + headerlist[i] + ' | wc -l')
+		num_muts_xls = commands.getoutput('cat ' + netmhclist[i] + ' | wc -l')
+		if os.path.exists(netmhclist[i]) and \
+				os.path.exists(headerlist[i]) and \
+						int(num_muts_xls) > 2 and \
+						int(num_muts_txt) > 0:
+			curroutputprocessed = processSingleFileOutput(netmhclist[i], headerlist[i], lengthslist[i], patientID, version)
+			procarrays.append(curroutputprocessed)
+
+	if len(procarrays) == 0:
+		return
+
 	# If there is more than one processed array, concatenate them together then write to outfile
 	if len(procarrays) > 1:
 		fullarray = np.concatenate(tuple(procarrays), axis=0)
