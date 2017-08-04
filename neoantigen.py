@@ -145,7 +145,6 @@ def main():
     logger.info('\t--normal_bam: ' + normal_bamfile)
     logger.info('\t--maf_file: ' + maf_file)
     logger.info('\t--output_dir: ' + output_dir)
-    logger.info('Starting neoantigen prediction run')
 
     polysolver_bin = config.get('POLYSOLVER', 'polysolver_bin')
     maf2fasta_py = os.path.dirname(os.path.realpath(__file__)) + '/neoantigen_calling_pipeline/mafToFastaV2.py'
@@ -231,11 +230,13 @@ def main():
         if expected_num_indels + expected_num_snps > 10000:
             wall_time = "3:00"
 
+        oncotator_file_pfx = output_dir + "/sample.oncotator_formatted"
         convert_script = os.path.dirname(os.path.realpath(__file__)) + "/convertToOncotator.py "
         bsub_cmd = "bsub -n 1 -K -R \"select[internet && mem=4]\" -We " + wall_time + \
+                   " -o " + oncotator_file_pfx + ".bsub.output -e " + oncotator_file_pfx + ".bsub.err " + \
                    " python " + convert_script + \
                    " --input_maf " + sample_maf_file + \
-                   " --output_maf_prefix " + output_dir + "/sample.oncotator_formatted"
+                   " --output_maf_prefix " + oncotator_file_pfx
 
         execute_cmd(bsub_cmd)
 
