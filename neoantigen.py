@@ -216,13 +216,13 @@ def main():
                 execute_cmd(cleanup_cmd)
             exit(1)
 
-        ## parse hla-alleles into the format that is required by NetMHC
-        if os.path.isfile(os.path.abspath(hla_file)):
-            for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
-                if allele == '':
-                    continue
-                levels = allele.split('_')
-                hla_alleles.append('HLA-' + levels[1].upper() + levels[2] + ':' + levels[3])
+    ## parse hla-alleles into the format that is required by NetMHC
+    if os.path.isfile(os.path.abspath(hla_file)):
+        for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
+            if allele == '':
+                continue
+            levels = allele.split('_')
+            hla_alleles.append('HLA-' + levels[1].upper() + levels[2] + ':' + levels[3])
 
     #######################
     ### FASTA with mutated peptides
