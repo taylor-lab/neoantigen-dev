@@ -204,14 +204,6 @@ def main():
                                   output_dir + '/polysolver/*bam ' + \
                                   output_dir + '/polysolver/*bai '
                     execute_cmd(cleanup_cmd)
-            
-            ## parse hla-alleles into the format that is required by NetMHC
-            if os.path.isfile(os.path.abspath(hla_file)):
-                for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
-                    if allele == '':
-                        continue
-                    levels = allele.split('_')
-                    hla_alleles.append('HLA-' + levels[1].upper() + levels[2] + ':' + levels[3])
 
         except Exception:
             logger.error('Could not run POLYSOLVER. Check polysolver.log and polysolver.err files in ' + output_dir)
@@ -223,24 +215,24 @@ def main():
                               output_dir + '/polysolver/*bai '
                 execute_cmd(cleanup_cmd)
             exit(1)
-    
+
+        ## parse hla-alleles into the format that is required by NetMHC
+        if os.path.isfile(os.path.abspath(hla_file)):
+            for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
+                if allele == '':
+                    continue
+                levels = allele.split('_')
+                hla_alleles.append('HLA-' + levels[1].upper() + levels[2] + ':' + levels[3])
+
     #######################
     ### FASTA with mutated peptides
     #######################
     logger.info('Generating mutated peptides FASTA')
     sample_path_pfx = output_dir + '/' + sample_id
-    sample_maf_file = sample_path_pfx + '.maf'
     mutated_sequences_fa = sample_path_pfx + '.mutated_sequences.fa'
     mutations = []
     out_fa = open(mutated_sequences_fa, 'w')
     try:
-        #reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cdna.fa.gz'
-        #reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cds.fa.gz'
-        #reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cdna.all.fa.gz'
-        #reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cds.all.fa.gz'
-        # reference_cdna_file = '/Users/bandlamc/tmp/Homo_sapiens.GRCh37.75.cdna.all.fa'
-        # reference_cds_file = '/Users/bandlamc/tmp/Homo_sapiens.GRCh37.75.cds.all.fa'
-
         logger.info('Loading reference CDS/cDNA sequences...')
         cds_seqs = load_transcript_fasta(reference_cds_file)
         cdna_seqs = load_transcript_fasta(reference_cdna_file)
