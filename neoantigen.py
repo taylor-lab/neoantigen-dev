@@ -1,69 +1,79 @@
 #!/opt/common/CentOS_6-dev/python/python-2.7.10/bin/python
-import argparse, os, re, errno
-import time, sys, datetime, dateutil.parser
+import os, sys, subprocess, psutil
+import argparse, re, errno
+import time, datetime, dateutil.parser
 import traceback
 import pandas as pd
-from ConfigParser import ConfigParser
-import subprocess
 import logging, logging.handlers
-import requests
-import commands
+import gzip
+import copy
+from ConfigParser import ConfigParser
+from joblib import Parallel, delayed
 
 #####
-#
-#  cmo_neoantigen - This script is a wrapper to the Neoantigen pipeline written by
-#  Claire Margolis in Van-Allen lab (https://github.com/vanallenlab/neoantigen_calling_pipeline).
-#  Some paths are hard-coded in the Van-Allen code base. So, we forked a recent branch (05/15/2017)
-#  and tweaked it to build a wrapper around it.  Any updates to the original branch should
-#  be reviewed and integrated manually into ours'.  This will likely be not an issue in
-#  the future as their pipeline matures.
-#
+# Neoantigen prediction pipeline. Four main steps: 
+#       (1) Genotype HLA using POLYSOLVER, 
+#       (2) Constructed mutated peptide sequences from HGVSp/HGVSc 
+#       (3) Run NetMHC-4.0 + NetMHCpan-4.0
+#       (4) Gather results and generate: 
+#               - <sample_id>.neoantigens.maf: original maf with neoantigen prediction columns added
+#               - <sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms
 #####
 
 def main():
     prog_description = (
-        'Wrapper to execute Van-Allen lab\'s neoantigen pipeline. In its present state, \n'
-        'this wrapper is primarily for preliminary analysis.  '
+        '# Neoantigen prediction pipeline. Four main steps: \n'
+        '\t\t(1) Genotype HLA using POLYSOLVER, \n'
+        '\t\t(2) Constructed mutated peptide sequences from HGVSp/HGVSc \n'
+        '\t\t(3) Run NetMHC-4.0 + NetMHCpan-4.0 \n'
+        '\t\t(4) Gather results and generate: \n'
+        '\t\t\t\t- <sample_id>.neoantigens.maf: original maf with neoantigen prediction columns added \n'
+        '\t\t\t\t- <sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms \n'
     )
     prog_epilog = (
-        'NOTES:  This pipeline is not optimized for run time efficiency.\n'
-        '\n\n'
+        '\n'
     )
 
     parser = argparse.ArgumentParser(description=prog_description,
                                      epilog=prog_epilog,
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      add_help=True)
-    parser.add_argument('--config_file',
+    required_arguments = parser.add_argument_group('Required arguments')
+    required_arguments.add_argument('--config_file',
                         required=True,
-                        help='REQUIRED. See: neoantigen-luna.config in the repo')
-    parser.add_argument('--sample_id',
+                        help='See: neoantigen-luna.config in the repo')
+    required_arguments.add_argument('--sample_id',
                         required=True,
-                        help='REQUIRED. sample_id used to limit neoantigen prediction to identify mutations '
+                        help='sample_id used to limit neoantigen prediction to identify mutations '
                              'associated with the patient in the MAF (column 16). ')
-    parser.add_argument('--output_dir',
+    required_arguments.add_argument('--output_dir',
                         required=True,
-                        help='REQUIRED. output directory')
-    parser.add_argument('--normal_bam',
+                        help='output directory')
+    required_arguments.add_argument('--maf_file',
+                        required=True,
+                        help='expects a CMO maf file (post vcf2maf.pl)')
+    required_arguments.add_argument('--normal_bam',
                         required=False,
                         help='full path to normal bam file. Either --normal_bam or --hla_file are required.')
-    parser.add_argument('--hla_file',
+
+    optional_arguments = parser.add_argument_group('Optional arguments')                        
+    optional_arguments.add_argument('--hla_file',
                         required=False,
                         help='POLYSOLVER output file (winners.hla.txt) for the sample. If not provided,'
                              'POLYSOLVER is run. Either --normal_bam or --hla_file are required.')
-    parser.add_argument('--maf_file',
-                        required=True,
-                        help='REQUIRED. expects a CMO maf file (post vcf2maf.pl)')
-    parser.add_argument('--keep_tmp_files',
+    optional_arguments.add_argument('--peptide_lengths', 
+                        required=False,
+                        help='comma-separated numbers indicating the lengths of peptides to generate. Default: 9,10')
+    optional_arguments.add_argument('--keep_tmp_files',
                         required=False,
                         help='keeps POLYSOLVER\'s temporary files. for debugging purposes. ' +
                              'Note: TMP files can be more than 5GB. Default: true',
                         action='store_true')
-    parser.add_argument('--force_rerun_polysolver',
+    optional_arguments.add_argument('--force_rerun_polysolver',
                         required=False,
                         help='ignores any existing polysolver output and re-runs it. Default: false',
                         action='store_true')
-    parser.add_argument('--force_rerun_netmhc',
+    optional_arguments.add_argument('--force_rerun_netmhc',
                         required=False,
                         help='ignores any existing netMHCpan output and re-runs it. Default: false',
                         action='store_true')
@@ -75,6 +85,10 @@ def main():
     output_dir = str(args.output_dir)
     hla_file = str(args.hla_file)
     sample_id = str(args.sample_id)
+    
+    peptide_lengths = [9, 10]
+    if args.peptide_lengths is not None:
+        peptide_lengths = map(int, str(args.peptide_lengths).split(','))
 
     if args.config_file is None:
         config_file_path = os.path.dirname(os.path.realpath(__file__)) + '/neoantigen-luna.config'
@@ -95,7 +109,7 @@ def main():
     if args.force_rerun_polysolver is not None and args.force_rerun_polysolver is True:
         force_polysolver = True
 
-    if args.force_rerun_polysolver is not None and args.force_rerun_polysolver is True:
+    if args.force_rerun_netmhc is not None and args.force_rerun_netmhc is True:
         force_netmhc = True
 
     if args.normal_bam is None and args.hla_file is None:
@@ -146,15 +160,22 @@ def main():
     logger.info('\t--maf_file: ' + maf_file)
     logger.info('\t--output_dir: ' + output_dir)
 
+    ### Load from config file
+    reference_cdna_file = config.get('Reference Paths', 'GRCh37cdna')
+    reference_cds_file = config.get('Reference Paths', 'GRCh37cds')
+    netmhc4_bin = config.get('NetMHCpan', 'netmhc4_bin_path')
+    netmhc4_alleleslist = config.get('NetMHCpan', 'netmhc4_alleleslist')
+    netmhcpan4_bin = config.get('NetMHCpan', 'netmhcpan4_bin_path')
+
+    if not os.path.exists(reference_cdna_file) or not os.path.exists(reference_cds_file):
+        sys.exit('Could not find reference CDNA/CDS files: ' + '\n\t' + reference_cdna_file + '\n\t' + reference_cds_file)
+
     polysolver_bin = config.get('POLYSOLVER', 'polysolver_bin')
-    maf2fasta_py = os.path.dirname(os.path.realpath(__file__)) + '/neoantigen_calling_pipeline/mafToFastaV2.py'
-    runNetMHC_py = os.path.dirname(os.path.realpath(__file__)) + '/neoantigen_calling_pipeline/runNetMHCpan.py'
-    mut_post_process_py = os.path.dirname(
-        os.path.realpath(__file__)) + '/neoantigen_calling_pipeline/mutationPostProcess.py'
 
     #######################
     ### POLYSOLVER
     #######################
+    hla_alleles = []
     if args.hla_file is None or not os.path.exists(hla_file):
         try:
             hla_file = output_dir + '/polysolver/winners.hla.txt'
@@ -182,6 +203,14 @@ def main():
                                   output_dir + '/polysolver/*bam ' + \
                                   output_dir + '/polysolver/*bai '
                     execute_cmd(cleanup_cmd)
+            
+            ## parse hla-alleles into the format that is required by NetMHC
+            if os.path.isfile(os.path.abspath(hla_file)):
+                for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
+                    if allele == '':
+                        continue
+                    levels = allele.split('_')
+                    hla_alleles.append('HLA-' + levels[1].upper() + levels[2] + ':' + levels[3])
 
         except Exception:
             logger.error('Could not run POLYSOLVER. Check polysolver.log and polysolver.err files in ' + output_dir)
@@ -193,257 +222,213 @@ def main():
                               output_dir + '/polysolver/*bai '
                 execute_cmd(cleanup_cmd)
             exit(1)
-
+    
     #######################
-    ### MAF2FASTA
+    ### FASTA with mutated peptides
     #######################
-    sample_maf_file = output_dir + '/' + sample_id + '.maf'
-
+    logger.info('Generating mutated peptides FASTA')
+    sample_path_pfx = output_dir + '/' + sample_id
+    sample_maf_file = sample_path_pfx + '.maf'
+    mutated_sequences_fa = sample_path_pfx + '.mutated_sequences.fa'
+    mutations = []
+    out_fa = open(mutated_sequences_fa, 'w')
     try:
-        logger.info('Generating candidate neoantigen peptide sequences...')
+        reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cdna.fa.gz'
+        reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cds.fa.gz'
+        #reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cdna.all.fa.gz'
+        #reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cds.all.fa.gz'
+        # reference_cdna_file = '/Users/bandlamc/tmp/Homo_sapiens.GRCh37.75.cdna.all.fa'
+        # reference_cds_file = '/Users/bandlamc/tmp/Homo_sapiens.GRCh37.75.cds.all.fa'
 
-        extract_sample_mutations_from_maf(maf_file, sample_id, sample_maf_file)
+        logger.info('Loading reference CDS/cDNA sequences...')
+        cds_seqs = load_transcript_fasta(reference_cds_file)
+        cdna_seqs = load_transcript_fasta(reference_cdna_file)
+        logger.info('Finished loading reference CDS/cDNA sequences...')
+        
+        logger.info('Reading MAF file and constructing mutated peptides...')
+        maf_df = pd.read_table(maf_file, comment='#', low_memory=False, header=0)
+        n_muts = n_non_syn_muts = n_missing_tx_id = 0
+        for index, row in maf_df.iterrows():
+            cds_seq = ''
+            cdna_seq = ''
+            
+            n_muts += 1
+            tx_id = row['Transcript_ID']
+            if tx_id in cds_seqs:
+                cds_seq = cds_seqs[tx_id]
 
-        oncotator_indel_maf_file = output_dir + '/sample.oncotator_formatted.INDEL.maf'
-        oncotator_snp_maf_file = output_dir + '/sample.oncotator_formatted.SNP.maf'
+            if tx_id in cdna_seqs:
+                cdna_seq = cdna_seqs[tx_id]
 
-        #
-        # Convert MAF to oncotator format
-        #
-        maf_df = pd.read_table(sample_maf_file,
-                               comment='#',
-                               low_memory=False,
-                               header=0)
+            mut = mutation(row, cds_seq, cdna_seq)
 
-        maf_df = maf_df[maf_df['Variant_Classification'].isin(['Missense_Mutation',
-                                                               'Nonsense_Mutation',
-                                                               'Nonstop_Mutation',
-                                                               'Frame_Shift_Del',
-                                                               'Frame_Shift_Ins',
-                                                               'In_Frame_Del',
-                                                               'In_Frame_Ins'])]
+            if not mut.is_non_syn():
+                n_non_syn_muts += 1
 
-        expected_num_indels = len( maf_df[maf_df['Variant_Type'].isin(['INS', 'DEL'])] )
-        expected_num_snps   = len( maf_df[maf_df['Variant_Type'] == 'SNP'] )
+            if cds_seq == '':
+                n_missing_tx_id += 1
+                
+            if cds_seq != '' and mut.is_non_syn():
+                mut.generate_translated_sequences(max(peptide_lengths))         
 
-        wall_time = "0:59"
-        if expected_num_indels + expected_num_snps > 10000:
-            wall_time = "3:00"
+            if len(mut.mt_altered_aa) > 5:
+                out_fa.write('>' + mut.identifier_key + '_mut\n')
+                out_fa.write(mut.mt_altered_aa + '\n')
 
-        oncotator_file_pfx = output_dir + "/sample.oncotator_formatted"
-        convert_script = os.path.dirname(os.path.realpath(__file__)) + "/convertToOncotator.py "
-        bsub_cmd = "bsub -n 1 -K -R \"select[internet && mem=4]\" -We " + wall_time + \
-                   " -o " + oncotator_file_pfx + ".bsub.output -e " + oncotator_file_pfx + ".bsub.err " + \
-                   " python " + convert_script + \
-                   " --input_maf " + sample_maf_file + \
-                   " --output_maf_prefix " + oncotator_file_pfx
+            mutations.append(mut)
+        out_fa.close()
 
-        execute_cmd(bsub_cmd)
-
-        # check if the conversion succeeded.
-        converter_log = open(output_dir + '/sample.oncotator_formatted.converter.log', 'r')
-        lines = converter_log.readlines()
-        if lines[ len(lines) - 1 ].find('Success') == -1:
-            logger.error('Error occurred while converting input MAF to oncotator format:\n')
-            logger.error('\n' + bsub_cmd)
-            exit(1)
-
-        maf2fasta_snv_cmd = 'export CMO_NEOANTIGEN_CONFIG=' + config_file_path + '; ' + \
-                            'python ' + maf2fasta_py + ' ' + \
-                            oncotator_snp_maf_file + ' 0 9,10 sample ' + output_dir
-        maf2fasta_indel_cmd = 'export CMO_NEOANTIGEN_CONFIG=' + config_file_path + '; ' + \
-                              'python ' + maf2fasta_py + ' ' + \
-                              oncotator_indel_maf_file + ' 1 9,10 sample ' + output_dir
-
-        # cleanup old peptide files (that is because mafToFastaV2.py attempts to 'append' to these files
-        execute_cmd('rm -f ' + output_dir + '/len9pep*txt ' + output_dir + '/len10pep*txt')
-
-        logger.info('Running mafToFasta for SNVs')
-        execute_cmd(maf2fasta_snv_cmd)
-
-        logger.info('Running mafToFasta for INDELs')
-        execute_cmd(maf2fasta_indel_cmd)
+        logger.info('\tMAF mutations summary')
+        logger.info('\t\t# mutations: ' + str(n_muts))
+        logger.info('\t\t# non-syn: ' + str(n_non_syn_muts) + ' (# with missing CDS: ' + str(n_missing_tx_id) + ')')
 
     except Exception:
-        logger.error('Error while running mafToFasta')
+        logger.error('Error while generating mutated peptides')
         logger.error(traceback.format_exc())
-        logger.error('Exiting.')
         exit(1)
 
     #######################
-    ### NetMHCpan
+    ### Run NetMHCpan 4.0, netMHC 4.0
     #######################
     try:
-        logger.info('Running MHC--peptide binding predictions using NetMHCpan...')
-        if not force_netmhc and check_for_netmhc_completion(output_dir):
-            logger.info('WARNING: Using output from previous run of NetHMCpan. '
-                        'If you suspect the integrity of previous run, please re-run this with --force_rerun_mhc')
+        logger.info('')
+        logger.info('Running MHC--peptide binding predictions using NetMHCpan 4.0...')
+    
+        netmhcpan_output_pfx = sample_path_pfx + '.netmhcpan4.output'
+        if not force_netmhc and check_file_exists_and_not_empty(netmhcpan_output_pfx + '.txt'):
+            logger.info('Previous run of NetMHCpan-4.0 found... Skipping!')
         else:
-            logger.info('Starting NETMHCpan...')
-            runNetMHCpan_cmd = 'export CMO_NEOANTIGEN_CONFIG=' + config_file_path + '; ' + \
-                               'python ' + runNetMHC_py + ' ' + \
-                               output_dir + '/len9pep_FASTA_indel.txt,' + \
-                               output_dir + '/len9pep_FASTA_snv.txt,' + \
-                               output_dir + '/len10pep_FASTA_indel.txt,' + \
-                               output_dir + '/len10pep_FASTA_snv.txt' + \
-                               ' ' + hla_file + ' 9,9,10,10 1 ' + output_dir
+            #####
+            logger.info('Starting NetMHCpan 4.0...')
+            #####
+            logger.info('Predicting on the following HLA-alleles: ' + ','.join(sorted(set(hla_alleles))))
+            run_netmhcpan_cmd = 'rm -f ' + netmhcpan_output_pfx + '.txt; '+ \
+                                netmhcpan4_bin + ' -s -BA ' + \
+                                ' -a ' + ','.join(sorted(set(hla_alleles))) + \
+                                ' -f ' + mutated_sequences_fa + \
+                                ' -l ' + ','.join(map(str, peptide_lengths)) + \
+                                ' -inptype 0 ' + \
+                                ' -xls ' + \
+                                ' -xlsfile ' + netmhcpan_output_pfx + '.xls ' + \
+                                ' > ' + netmhcpan_output_pfx + '.txt'
+            execute_cmd(run_netmhcpan_cmd)
 
-            execute_cmd(runNetMHCpan_cmd)
-            logger.info('Cleaning up NetMHCpan run directory')
-            cleanup_cmd = 'rm -rf ' + output_dir + '/scratch/*/*.pred '
-            execute_cmd(cleanup_cmd)
+        netmhc_output_pfx = sample_path_pfx + '.netmhc4.output'
+        if not force_netmhc and check_file_exists_and_not_empty(netmhc_output_pfx + '.txt'):
+            logger.info('Previous run of NetMHC-4.0 found... Skipping!')
+        else:
+            #####
+            logger.info('Starting NetMHC 4.0...')
+            #####
+            # For netMHC-4 prediction, only predict on alleles for which data exists
+            netmhc_alleles = list(pd.read_table(netmhc4_alleleslist, header=None, usecols=[0])[0])
+            alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
+            logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
+
+            run_netmhc_cmd = 'rm -f ' + netmhc_output_pfx + '.txt; '+ \
+                                netmhc4_bin + ' -s ' + \
+                                ' -a ' + ','.join(sorted(set(alleles_for_prediction))) + \
+                                ' -f ' + mutated_sequences_fa + \
+                                ' -l ' + ','.join(map(str, peptide_lengths)) + \
+                                ' -inptype 0 ' + \
+                                ' -xls ' + \
+                                ' -xlsfile ' + netmhc_output_pfx + '.xls ' + \
+                                ' > ' + netmhc_output_pfx + '.txt'
+            execute_cmd(run_netmhc_cmd)
+
+        logger.info('Cleaning up NetMHCpan-4.0 run directory')
+        cleanup_cmd = 'rm -rf ' + output_dir + '/scratch/*/*.pred '
+        execute_cmd(cleanup_cmd)
 
     except Exception:
-        logger.error('Error while running NetMHCpan')
+        logger.error('Error while running NetMHCpan and NetMHC')
         logger.error(traceback.format_exc())
         logger.info('Cleaning up NetMHCpan run directory')
         cleanup_cmd = 'rm -rf ' + output_dir + '/scratch/*/*.pred '
         execute_cmd(cleanup_cmd)
         exit(1)
 
-
     #######################
-    ### Process NetMHCpan output
+    ### Parse NetMHCpan 4.0, netMHC 4.0 output; and, generate output files
     #######################
     try:
-        logger.info('Post-processing...')
-        mutationPostProcess_cmd = 'export CMO_NEOANTIGEN_CONFIG=' + config_file_path + '; python ' + \
-                                  mut_post_process_py + ' ' + \
-                                  output_dir + '/NETMHCpan_out_9SNV.xls,' + \
-                                  output_dir + '/NETMHCpan_out_9InDel.xls,' + \
-                                  output_dir + '/NETMHCpan_out_10SNV.xls,' + \
-                                  output_dir + '/NETMHCpan_out_10InDel.xls ' + \
-                                  output_dir + '/len9pep_headermap_snv.txt,' + \
-                                  output_dir + '/len9pep_headermap_indel.txt,' + \
-                                  output_dir + '/len10pep_headermap_snv.txt,' + \
-                                  output_dir + '/len10pep_headermap_indel.txt ' + \
-                                  ' 9,9,10,10 sample 1 ' + output_dir
-        execute_cmd(mutationPostProcess_cmd)
+        logger.info('')
+        logger.info('Parse NetMHC-4.0 and NetMHCpan-4.0 output....')
+        ###
+        ### Parse NetMHCpan and NetMHC output into a single file with binding scores 
+        ###
+        parse_output_cmd = "grep -P \"^\\s*\\d+\\s*HLA\\-\"  | sed -r \'s/\\s+/\\t/g\' | sed -r \'s/^\\s*//g\' | cut -f 2-4,10,12-14 | "
+        combined_output = sample_path_pfx + '.netmhcpan_netmhc_combined.output.txt'
+        generate_output_cmd = 'echo -e \'algorithm\\thla_allele\\tpeptide\\tcore\\ticore\\tscore\\taffinity\\trank\'' + \
+                                ' > ' + combined_output + '; ' + \
+                                ' cat ' + netmhcpan_output_pfx + '.txt | ' + \
+                                parse_output_cmd + \
+                                ' awk \'{print \"NetMHCpan-4.0\\t\"$0}\' >> ' + combined_output + '; ' + \
+                                ' cat ' + netmhc_output_pfx + '.txt | ' + \
+                                parse_output_cmd + \
+                                ' awk \'{print \"NetMHC-4.0\\t\"$0}\' >> ' + combined_output + '; '
+        execute_cmd(generate_output_cmd)
+
+        #logger.info('memory usage: ' + str((psutil.Process(os.getpid()).memory_info().rss/1e9)))
+
+        # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
+        neopeptide_table = pd.read_table(combined_output).drop_duplicates()
+        all_neopeptides = [neopeptide(row) for index, row in neopeptide_table.iterrows()]
+        
+        # For each neopeptide, we want to check whether that peptide fragment could be generated by any other WT protein 
+        # in the genome. Currently, optimal approach is to generate a string of the entire coding sequence in the genome
+        # and search each neopeptide against it
+        ref_aa_str = ''
+        for cds in cds_seqs.values():
+            if cds[0:3] == 'ATG':
+                ref_aa_str += mutation.cds_to_aa(cds) + '|'
+
+        # make a list of all unique peptides
+        all_peptides = ({x.peptide:1 for x in all_neopeptides}).keys()
+
+        results = Parallel(n_jobs=4)(delayed(find_in_reference_peptides)(all_peptides, i, 4, ref_aa_str) for i in range(1, 5))
+        results = {item:1 for sublist in results for item in sublist}
+
+        for i in range(0, len(all_neopeptides)):
+            if all_neopeptides[i].peptide in results.keys():
+                all_neopeptides[i].is_in_reference = True
+
+        # parse the mutations (with neopeptides/binding predictions) and compile output files.
+        maf_output = []
+        predictions_output = []
+        for mut in mutations:
+            mut.match_with_neopeptides(all_neopeptides)
+            maf_output.append(mut.get_maf_row_to_print())
+            predictions_output.extend(mut.get_predictions_rows_to_print())
+            
+        maf_output_df = pd.DataFrame.from_items([(s.name, s) for s in maf_output]).T
+        maf_output_df.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
+
+        predictions_output_df = pd.DataFrame.from_items([(s.name, s) for s in predictions_output]).T
+        predictions_output_df.to_csv(sample_path_pfx + '.all_neoantigen_predictions.txt', sep='\t', index=False)
 
     except Exception:
-        logger.error('Error: could not run post-processing')
+        logger.error('Error while processing NetMHCpan and NetMHC output')
         logger.error(traceback.format_exc())
         exit(1)
-
-    #######################
-    ### Annotate input maf with neoantigen binding affinities
-    #######################
-    logger.info('Starting annotation of input maf with binding affinities')
-
-    netmhc_out_df = pd.read_table(output_dir + '/sample_processedcombinedNETMHCpan_out.txt',
-                                  comment='#',
-                                  low_memory=False,
-                                  header=0)
-
-    maf_df = pd.read_table(sample_maf_file,
-                           comment='#',
-                           low_memory=False,
-                           header=0)
-
-    ## construct a unique key in both dataframes to do a join
-    maf_df['key'] = 'chr' + maf_df['Chromosome'].map(str) + ':' + maf_df['Start_Position'].map(str) + '-' + \
-                    maf_df['End_Position'].map(str) + ',' + maf_df['Hugo_Symbol'].map(str) + ',' + \
-                    maf_df['HGVSp_Short'].map(str)
-
-    netmhc_out_df['key'] = netmhc_out_df['chrom_loc'].map(str) + ',' + netmhc_out_df['gene'].map(str) + ',' + \
-                           netmhc_out_df['prot_change'].map(str)
-
-    ## select specific columns
-    netmhc_out_df = netmhc_out_df[['key', 'HLA', 'pep_length', 'pep_mut', 'aff_mut', 'rank_mut',
-                                   'pep_wt', 'aff_wt', 'rank_wt']]
-
-    #
-    # for mutations with >1 nominated neoantigen peptides, select the one with the highest binding affinity
-    #
-    logger.info('For mutations with multiple neoantigens, selecting the MUT peptide with highest affinity ...')
-
-    netmhc_out_summary = netmhc_out_df['aff_mut'].groupby(netmhc_out_df['key']).apply(get_stats).unstack()
-
-    netmhc_out_summary['key'] = netmhc_out_summary.axes[0].tolist()
-
-    netmhc_out_df = pd.merge(netmhc_out_summary,
-                             netmhc_out_df,
-                             how='left',
-                             on=['key', 'aff_mut'])
-
-    netmhc_out_df = netmhc_out_df.rename(columns={'count': 'total_num_neoantigens'})
-
-    netmhc_out_df = netmhc_out_df[['key',
-                                   'HLA',
-                                   'pep_length',
-                                   'pep_mut',
-                                   'aff_mut',
-                                   'rank_mut',
-                                   'pep_wt',
-                                   'aff_wt',
-                                   'rank_wt',
-                                   'total_num_neoantigens']]
-
-    maf_df_netmhc = pd.merge(maf_df, netmhc_out_df, how='outer', on='key', indicator=True)
-
-    unmatched_aff_file = output_dir + '/' + sample_id + '_unmatched_netMHCpan_affinities.txt'
-
-    maf_df_netmhc.to_csv(unmatched_aff_file, sep='\t', index=False)
-
-    # QC check to make sure there are no binding affinities in the netMHCpan output that cannot be paired
-    # with the mutations in the MAF file.  This shouldn't happen.  Just to make sure that the 'key' we are
-    # joining with, above, is correct.
-    if len(maf_df_netmhc[maf_df_netmhc._merge == 'right_only']) > 0:
-        logger.info('WARNING: There are binding affinities in the netHMCpan output that ' \
-                    'cannot be properly paired with the mutations in the maf file. ' \
-                    'See file: ' + unmatched_aff_file)
-        maf_df_netmhc[maf_df_netmhc._merge == 'right_only'].to_csv(unmatched_aff_file,
-                                                                   sep='\t',
-                                                                   index=False)
-    del maf_df_netmhc['_merge']
-
-    maf_df_netmhc.to_csv(output_dir + '/' + sample_id + '.netMHCpan.neoantigens.maf',
-                         sep='\t',
-                         index=False)
-
     logger.info('neoantigen-dev pipeline execution completed.\nExiting!')
 
-def check_for_netmhc_completion(output_dir):
+# helper function to split the list of peptides into batches and search against the reference peptidome.
+def find_in_reference_peptides(peptides_list, batch_id, n_batches, ref_aa_str):
+    batch_size =(len(peptides_list)/n_batches) + 1
+    st = batch_size * (batch_id - 1)
+    en = min(len(peptides_list), batch_size * batch_id)
 
-    if not os.path.isfile(output_dir + '/NETMHCpan_out_9SNV.xls') or \
-            not os.path.isfile(output_dir + '/NETMHCpan_out_9InDel.xls') or \
-            not os.path.isfile(output_dir + '/NETMHCpan_out_10SNV.xls') or \
-            not os.path.isfile(output_dir + '/NETMHCpan_out_10InDel.xls'):
-        return False
+    matches = []
+    for i in range(st, en):
+        if peptides_list[i] in ref_aa_str:
+            matches.append(peptides_list[i])
+    return matches
 
-    maf2fasta_9snv    = commands.getoutput('cat ' + output_dir +
-                                         '/len9pep_FASTA_snv.txt    | grep seq_ | grep _mut | sort | uniq | wc -l')
-    maf2fasta_10snv   = commands.getoutput('cat ' + output_dir +
-                                         '/len10pep_FASTA_snv.txt   | grep seq_ | grep _mut | sort | uniq | wc -l')
-    maf2fasta_9indel  = commands.getoutput('cat ' + output_dir +
-                                         '/len9pep_FASTA_indel.txt  | grep seq_ | grep _mut | sort | uniq | wc -l')
-    maf2fasta_10indel = commands.getoutput('cat ' + output_dir +
-                                         '/len10pep_FASTA_indel.txt | grep seq_ | grep _mut | sort | uniq | wc -l')
-
-    netmhc_9snv     = commands.getoutput('cat ' + output_dir +
-                                         '/netMHCpanoutlen_9SNV.txt    | grep seq_ | grep _mut | cut -f 1 -d\'.\' | sort | uniq | wc -l')
-    netmhc_10snv    = commands.getoutput('cat ' + output_dir +
-                                         '/netMHCpanoutlen_10SNV.txt   | grep seq_ | grep _mut | cut -f 1 -d\'.\' | sort | uniq | wc -l')
-    netmhc_9indel   = commands.getoutput('cat ' + output_dir +
-                                         '/netMHCpanoutlen_9InDel.txt  | grep seq_ | grep _mut | cut -f 1 -d\'.\' | sort | uniq | wc -l')
-    netmhc_10indel  = commands.getoutput('cat ' + output_dir +
-                                         '/netMHCpanoutlen_10InDel.txt | grep seq_ | grep _mut | cut -f 1 -d\'.\' | sort | uniq | wc -l')
-
-    incomplete = 0
-    if maf2fasta_9snv != netmhc_9snv or \
-                    maf2fasta_9indel != netmhc_9indel or \
-                    maf2fasta_10snv != netmhc_10snv or \
-                    maf2fasta_10indel != netmhc_10indel:
-        incomplete = 1
-
-    if incomplete == 1:
-        #os.system('rm -f ' + output_dir + '/NETMHCpan_out*txt ' + output_dir + '/netMHCpanoutlen*txt ' )
-        return False
-    else:
+def check_file_exists_and_not_empty(filename):
+    if os.path.isfile(filename) and os.stat(filename).st_size > 100:
         return True
-
-def get_stats(group):
-    return {'aff_mut': group.min(), 'count': group.count()}
+    return False
 
 def get_timestamp():
     return time.strftime('%Y-%m-%d  %H:%M:%S')
@@ -451,112 +436,302 @@ def get_timestamp():
 def execute_cmd(cmd):
     logger = logging.getLogger('neoantigen')
     logger.debug('Executing command: ' + cmd)
-    subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
+    output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
+    logger.debug('command output: ' + output)
     logger.debug('Done')
 
-def extract_sample_mutations_from_maf(maf_file, sample_id, sample_maf_file):
-    logger = logging.getLogger('neoantigen')
-    logger.info('Parsing MAF file for mutations associated with sample: ' + sample_id)
-
-    maf_df = pd.read_table(maf_file,
-                         comment='#',
-                         low_memory=False,
-                         header=0)
-
-    if maf_df.columns[15] != 'Tumor_Sample_Barcode':
-        logger.error('Error: \'Tumor_Sample_Barcode\' not found. Use cmo_maf2maf before running this pipeline.')
-        exit(1)
-
-    maf_df = maf_df[maf_df.Tumor_Sample_Barcode == sample_id]
-    logger.info('Found ' + str(len(maf_df)) + ' mutations')
-    maf_df.to_csv(sample_maf_file, sep='\t', index=False)
-
-#
-# Function DEPRACATED.  Oncotator's maf annotation is different from every other annotator's output including vcf2maf.
-# This function shuffles the columns to make them compatible with Van Allen group's pipeline
-#
-def convert_to_oncotator_format(inp_maf_file, oncotat_indel_maf_file, oncotat_snp_maf_file):
-    logger = logging.getLogger('neoantigen')
-    logger.info('Converting input maf to Oncotator format')
-    inp_maf_file_obj = open(inp_maf_file, 'r')
-    oncotat_indel_maf_file_obj = open(oncotat_indel_maf_file, 'w', 0)
-    oncotat_snp_maf_file_obj = open(oncotat_snp_maf_file, 'w', 0)
-
-    for line in inp_maf_file_obj.readlines():
-        if re.match(r'^#', line):
-            continue
-
-        codon_change = ''
-        columns = line.split('\t')
-
-        cds_position = columns[52]  # col 53: "CDS_position"
-        variant_type = columns[9]   # col 10: "Variant_Type"
-
-        columns[39] = columns[34].replace('dup', 'ins')  # col 35: "HGVSc"
-        columns[41] = columns[36]   # col 37: "HGVSp_Short"
-        columns[35] = columns[37]   # col 38: "Transcript_ID"
-
-
-        if re.match(r'^Hugo_Symbol', line):
-            columns[40] = 'Codon_Change'      # Codon_Change in Oncotator is 41st column
-            oncotat_indel_maf_file_obj.write('\t'.join(columns))
-            oncotat_snp_maf_file_obj.write('\t'.join(columns))
+def load_transcript_fasta(fa_file):
+    seqs = dict()
+    if fa_file[-3:len(fa_file)] == '.gz':
+        lines = gzip.open(fa_file, 'rb').readlines()
+    else:
+        lines = open(fa_file).readlines()
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        m = re.search('^>(ENST\d+)\s', line)
+        transcript_id = ''
+        if not m:
+            sys.exit('Error parsing transcript file ' + fa_file + ' at line: ' + line)
         else:
-            acds_start = 0
-            acds_end = 0
-            pat = re.compile('Missense|Nonsense|Nonstop|Frame_Shift|In_Frame')
-            if not pat.match(columns[8]):
-                continue
+            transcript_id = m.group(1)
 
-            if variant_type == 'SNP':
-                position = int(cds_position.split('/')[0])
+        idx = idx + 1
+        seq_str = ''
+        while idx < len(lines) and not re.match('^>ENST', lines[idx]):
+            seq_str = seq_str + lines[idx].strip()
+            idx = idx + 1
+            seqs[transcript_id] = seq_str
 
-                if position % 3 == 0:
-                    acds_start = position - 2
-                    acds_end = position
-                elif position % 3 == 1:
-                    acds_start = position
-                    acds_end = position + 2
-                else:
-                    acds_start = position - 1
-                    acds_end = position + 1
+    return seqs
 
-                columns[55] = columns[55].replace('/', '>')     # col 56: "Codons"
-                codon_change = 'c.(' + str(acds_start) + '-' + str(acds_end) + ')' + columns[55]
-                columns[40] = codon_change
-                oncotat_snp_maf_file_obj.write('\t'.join(columns))
+#
+# class to hold the binding prediction for each peptide/hla_allele and algorithm
+#
+class neopeptide(object):
+    row = None
+    algorithm = ''
+    hla_allele = ''
+    peptide = ''
+    core = ''
+    icore = ''
+    score = 0
+    binding_affinity = 10000
+    rank = 100
+    is_in_reference = False
 
-            else:
-                if cds_position.find('?') != -1:
-                    continue  # ignoring cases where the translational consequence is ambiguous
-                              # (eg: start of INDEL in exon and end in UTR/intron).
+    def __init__(self, row, is_in_reference = False):
+        self.row = row
+        self.algorithm = row['algorithm']
+        self.hla_allele = row['hla_allele']
+        self.peptide = row['peptide']
+        self.core = row['core']
+        self.icore = row['icore']
+        self.score = row['score']
+        self.binding_affinity = row['affinity']
+        self.rank = row['rank']
+        self.is_in_reference = is_in_reference
+        
+        ## properly format hla allele. Between HLA-A1234 and HLA-A12:34, use the latter
 
-                positions = (cds_position.split('/')[0]).split('-')
-                position_s = int(positions[0])
-                if len(positions) > 1:
-                    position_e = int(positions[1])
-                else:
-                    position_e = position_s
+        if re.match(r'HLA-\w\d\d\d\d$', self.hla_allele):
+            gene, major, minor = re.match(r'(HLA-\w)(\d\d)(\d\d)$', self.hla_allele).groups()
+            self.hla_allele = gene + major + ':' + minor
+            
+    def is_strong_binder(self):
+        if self.rank < 0.5 or self.binding_affinity < 50:
+            return True
+        return False
 
-                if position_s % 3 == 0:
-                    acds_start = position_s - 2
-                elif position_s % 3 == 1:
-                    acds_start = position_s
-                else:
-                    acds_start = position_s - 1
+    def is_weak_binder(self):
+        if not self.is_strong_binder() and (self.rank < 2 or self.binding_affinity < 500):
+            return True
+        return False
 
-                if position_e % 3 == 0:
-                    acds_end = position_e
-                elif position_e % 3 == 1:
-                    acds_end = position_e + 2
-                else:
-                    acds_end = position_e + 1
+#
+# class to hold the list of neopeptides and helper functions to identify strong/weak binders
+#
+class binding_predictions(object):
+    neopeptides = None
 
-                columns[55] = columns[55].replace('/', '>')
-                codon_change = 'c.(' + str(acds_start) + '-' + str(acds_end) + ')' + columns[55]
-                columns[40] = codon_change
-                oncotat_indel_maf_file_obj.write('\t'.join(columns))
+    def __init__ (self, neopeptides):
+        self.neopeptides = neopeptides
 
+    def add_neopeptide(self, np):
+        self.neopeptides.append(np)
+
+    def get_strong_binders(self):
+        return [x for x in self.neopeptides if x.is_strong_binder()]
+
+    def get_weak_binders(self):
+        return [x for x in self.neopeptides if x.is_weak_binder()]
+
+    def get_all_binders(self):
+        return [x for x in self.neopeptides if x.is_strong_binder() or x.is_weak_binder()]
+
+    def get_best_binder(self):
+        if (len(self.neopeptides) == 0):
+            return None
+        return sorted(self.neopeptides, key=lambda x: x.rank, reverse=False)[0]
+
+#
+# mutation class holds each row in the maf and has 
+#
+class mutation(object):
+    maf_row = None
+    cds_seq = ''
+    cdna_seq = ''
+    wt_aa = ''
+    wt_altered_aa = ''
+    mt_aa = ''
+    mt_altered_aa = ''
+    identifier_key = ''
+    predicted_neopeptides = None
+
+    def __init__(self, maf_row, cds_seq, cdna_seq):
+        self.maf_row = maf_row
+        self.cds_seq = cds_seq
+        self.cdna_seq = cdna_seq
+        self.predicted_neopeptides = binding_predictions([])
+        self.identifier_key = self.maf_row['Tumor_Sample_Barcode'] + '_' + \
+                              str(self.maf_row['Chromosome']) + '_' + \
+                              str(self.maf_row['Start_Position']) + '-' + \
+                              str(self.maf_row['End_Position']) + '_' + \
+                              self.maf_row['Reference_Allele'] + '_' + \
+                              self.maf_row['Tumor_Seq_Allele2']
+        
+    ### Check if the variant_classification is among those that can generate a neoantigen
+    def is_non_syn(self):
+        types = ['Frame_Shift_Del', 'Frame_Shift_Ins', 'In_Frame_Del', 
+                'In_Frame_Ins', 'Missense_Mutation', 'Nonstop_Mutation']
+
+        return self.maf_row['Variant_Classification'] in types and not pd.isnull(self.maf_row['HGVSp_Short'])
+
+    ### helper function #source: stackoverflow.
+    def reverse_complement(self, dna):
+        complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+        return ''.join([complement[base] for base in dna[::-1]])
+
+    ### helper function to translate cDNA sequence
+    @staticmethod
+    def cds_to_aa(cds):
+        # https://www.geeksforgeeks.org/dna-protein-python-3/
+        codon_table = {
+            'ATA': 'I', 'ATC': 'I', 'ATT': 'I', 'ATG': 'M', 'ACA': 'T', 'ACC': 'T', 'ACG': 'T', 'ACT': 'T',
+            'AAC': 'N', 'AAT': 'N', 'AAA': 'K', 'AAG': 'K', 'AGC': 'S', 'AGT': 'S', 'AGA': 'R', 'AGG': 'R',
+            'CTA': 'L', 'CTC': 'L', 'CTG': 'L', 'CTT': 'L', 'CCA': 'P', 'CCC': 'P', 'CCG': 'P', 'CCT': 'P',
+            'CAC': 'H', 'CAT': 'H', 'CAA': 'Q', 'CAG': 'Q', 'CGA': 'R', 'CGC': 'R', 'CGG': 'R', 'CGT': 'R',
+            'GTA': 'V', 'GTC': 'V', 'GTG': 'V', 'GTT': 'V', 'GCA': 'A', 'GCC': 'A', 'GCG': 'A', 'GCT': 'A',
+            'GAC': 'D', 'GAT': 'D', 'GAA': 'E', 'GAG': 'E', 'GGA': 'G', 'GGC': 'G', 'GGG': 'G', 'GGT': 'G',
+            'TCA': 'S', 'TCC': 'S', 'TCG': 'S', 'TCT': 'S', 'TTC': 'F', 'TTT': 'F', 'TTA': 'L', 'TTG': 'L',
+            'TAC': 'Y', 'TAT': 'Y', 'TAA': '_', 'TAG': '_', 'TGC': 'C', 'TGT': 'C', 'TGA': '_', 'TGG': 'W',
+        }
+        protein = ''
+
+        for i in range(0, len(cds), 3):
+            codon = cds[i:i + 3]
+            if len(codon) != 3:
+                ## This is unusual; in some cases in Ensembl the CDS length is not a multiple of 3. Eg: ENST00000390464
+                ## For this reason, decided not to throw an error and just stop translating if the CDS ends with a non-triplet
+                #print 'CDS ends with non-triplet: ' + codon + ' ' + cds
+                break
+            if codon_table[codon] == '_': # stop codon reached
+                break
+            protein += codon_table[codon]
+        return protein
+
+    # function that parses the HGVSc and constructs the WT and mutated coding sequences for the given mutation.
+    def generate_translated_sequences(self, pad_len=10):
+        if not self.is_non_syn():
+            return None
+        
+        ## append the 3'UTR to the CDS -- to account for non stop mutations and indels that shift the canonical stop
+        if not self.cds_seq in self.cdna_seq:
+            print 'Skipping because the CDS is not contained within cDNA. Note: only 2 transcripts/peptides are like this'
+            return None
+
+        hgvsc = self.maf_row['HGVSc']
+        position, ref_allele, alt_allele, sequence, hgvsc_type = [-1, '', '', '', 'ONP']
+
+        if re.match(r'^c\.(\d+).*([ATCG]+)>([ATCG]+)$', hgvsc):
+            position, ref_allele, alt_allele = re.match(r'^c\.(\d+).*(\w+)>(\w+)', hgvsc).groups()
+
+        elif re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc):
+            position, ref_allele, alt_allele = re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc).groups()
+
+        elif re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc):
+            position, hgvsc_type, sequence = re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc).groups()
+
+        else:
+            sys.exit('Error: not one of the known HGVSc strings: ' + hgvsc)
+
+        position = int(position) - 1
+        if hgvsc_type in 'dup,ins':
+            alt_allele = sequence
+        elif hgvsc_type == 'del':
+            ref_allele = sequence
+        elif hgvsc_type == 'inv':
+            ref_allele = sequence
+            alt_allele = self.reverse_complement(sequence)
+
+        ## start of mutated region in CDS
+        cds = re.search(self.cds_seq + '.*', self.cdna_seq).group()
+
+        seq_5p = cds[0:position]
+        seq_3p = cds[position:len(cds)]
+
+        #print self.hgvsp + '\t' + self.variant_class + '\t' + self.variant_type + '\t' + self.ref_allele + '\t' + self.alt_allele + \
+        #      '\t' + self.cds_position + '\nFull CDS: ' + self.cds_seq + '\nSeq_5: ' + seq_5p + '\nSeq_3' + seq_3p + '\n>mut_1--' + mut_cds_1 + '\n>mut_2--' + mut_cds_2 + '\n>mut_3--' + mut_cds_3
+        wt = mutation.cds_to_aa(seq_5p + ref_allele + seq_3p[len(ref_allele):len(seq_3p)])
+        mt = mutation.cds_to_aa(seq_5p + alt_allele + seq_3p[len(ref_allele):len(seq_3p)])
+
+        ### identify regions of mutation in WT and MT sequences. 
+        ### logic is to match the wt and mt sequences first from the beginning until a mismatch is found; and, then,
+        ### start from the end of both sequences until a mismatch is found. the intervening sequence represents the WT and MT sequences
+        ### Note, aside from missenses, the interpretation of WT sequence is ambiguous.
+        len_from_start = len_from_end = 0
+
+        ## from start
+        for i in range(0, min(len(wt), len(mt))):
+            len_from_start = i
+            if wt[i:i + 1] != mt[i:i + 1]:
+                break
+
+        ## from end
+        wt_rev = wt[::-1]
+        mt_rev = mt[::-1]
+        for i in range(0, min(len(wt), len(mt))):
+            len_from_end = i
+            if len_from_end + len_from_start >= min(len(wt), len(mt)) or \
+                wt_rev[i:i + 1] != mt_rev[i:i + 1]:
+                break
+
+        wt_start = len_from_start
+        wt_end = len(wt) - len_from_end
+
+        mt_start = len_from_start
+        mt_end = len(mt) - len_from_end
+
+        self.wt_aa = wt
+        self.mt_aa = mt
+
+        self.wt_altered_aa = wt[max(0, wt_start - pad_len + 1):min(len(wt), wt_end + pad_len-1)]
+        self.mt_altered_aa = mt[max(0, mt_start - pad_len + 1):min(len(mt), mt_end + pad_len-1)]
+
+    # function to iterate over all the the neopeptide predictions made in the entire MAF and identify
+    # which neopeptides are generated by this mutation object
+    def match_with_neopeptides(self, all_neopeptides):
+        for np in all_neopeptides:
+            if np.peptide in self.mt_altered_aa:
+                self.predicted_neopeptides.add_neopeptide(copy.deepcopy(np))
+    
+    # simply prints the original row in the MAF file along with some neoantigen prediction specific 
+    # appended at the end
+    def get_maf_row_to_print(self):
+        row = self.maf_row
+        row['neo_maf_identifier_key'] = self.identifier_key
+
+        if self.predicted_neopeptides.get_best_binder() is not None:
+            best_binder = self.predicted_neopeptides.get_best_binder()
+            binder_type = 'Non-Binder'
+            if best_binder.is_strong_binder():
+                binder_type = 'Strong Binder'
+            elif best_binder.is_weak_binder():
+                binder_type = 'Weak Binder'
+
+            strong_binders = self.predicted_neopeptides.get_strong_binders()
+            weak_binders = self.predicted_neopeptides.get_weak_binders()
+            row['neo_best_icore_peptide'] = best_binder.icore
+            row['neo_best_rank'] = best_binder.rank
+            row['neo_best_binding_affinity'] = best_binder.binding_affinity
+            row['neo_best_binder_classification'] = binder_type
+            row['neo_best_is_in_reference'] = best_binder.is_in_reference
+            row['neo_best_algorithm'] = best_binder.algorithm
+            row['neo_best_hla_allele'] = best_binder.hla_allele
+            row['neo_n_all_binders'] = len(strong_binders) + len(weak_binders)
+            row['neo_n_strong_binders'] = len(strong_binders)
+            row['neo_n_weak_binders'] = len(weak_binders)
+        else:
+            row['neo_best_icore_peptide'] = ''
+            row['neo_best_rank'] = ''
+            row['neo_best_binding_affinity'] = ''
+            row['neo_best_binder_classification'] = ''
+            row['neo_best_is_in_reference'] = ''
+            row['neo_best_algorithm'] = ''
+            row['neo_best_hla_allele'] = ''
+            row['neo_n_all_binders'] = 0
+            row['neo_n_strong_binders'] = 0
+            row['neo_n_weak_binders'] = 0
+        return row
+
+    # simply prints the original row of the 'combined_output' of neoantigen predictions along with additional columns
+    def get_predictions_rows_to_print(self):
+        rows = []
+        for prediction in self.predicted_neopeptides.neopeptides:
+            prediction.row['neo_maf_identifier_key'] = self.identifier_key
+            prediction.row['neo_is_in_reference'] = prediction.is_in_reference
+            rows.append(prediction.row)
+        return rows           
 
 if __name__ == '__main__':
     main()
