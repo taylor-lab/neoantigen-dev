@@ -1,6 +1,15 @@
 
+
 # neoantigen-dev
-neoantigen prediction from WES/WGS - a wrapper to Van Allen lab's neoantigen prediction pipeline (https://github.com/vanallenlab/neoantigen_calling_pipeline). 
+MHC Class I neoantigen prediction pipeline from IM5/IM6/WES/WGS. Takes Normal `.bam` and somatic `.maf` and generates neoantigen predictions for HLA-A/B/C.
+
+The pipeline has four main steps:
+
+1. **Genotype HLA**. genotyping performed using POLYSOLVER. 
+2. **Construct mutated peptides**.  For non-synonymous mutations, generates mutated peptide sequences based on `HGVSc`.  _NOTE_: `.maf` file should be VEP annotated using `cmo_maf2maf`. TODO: Generate mutated sequences for fusions.
+3. **Run NetMHCpan-4.0 and NetMHC-4.0**. using default parameters for each algorithm. 
+4. **Post-processing**. compiles predictions from both algorithms and finds strongest binder for each non-synonymous mutation. Also, each predicted neopeptide is searched against the entire reference peptidome to make sure it is a true neopeptide. `is_in_reference` column reflects that. TODO: Incorporate neoantigen quality from [Lukzsa et al., Nature 2017](https://www.nature.com/articles/nature24473)
+
 
 ## Install
 Clone the repo and you are ready to go:
@@ -9,32 +18,40 @@ git clone https://github.com/taylor-lab/neoantigen-dev.git
 ```
 
 ## Usage
+NOTE: For POLYSOLVER step, the pipeline requires 8 cores. 
 ```
-usage: neoantigen.py [-h] --config_file CONFIG_FILE [--normal_bam NORMAL_BAM]
-                     [--hla_file HLA_FILE] --maf_file MAF_FILE --sample_id
-                     SAMPLE_ID --output_dir OUTPUT_DIR [--keep_tmp_files]
-                     [--force_rerun_polysolver] [--force_rerun_netmhc]
-
-Wrapper to execute Van-Allen lab's neoantigen pipeline. In its present state,
-this wrapper is primarily for preliminary analysis.
+# Neoantigen prediction pipeline. Four main steps:
+		(1) Genotype HLA using POLYSOLVER,
+		(2) Constructed mutated peptide sequences from HGVSp/HGVSc
+		(3) Run NetMHC-4.0 + NetMHCpan-4.0
+		(4) Gather results and generate:
+				- <sample_id>.neoantigens.maf: original maf with neoantigen prediction columns added
+				- <sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms
 
 optional arguments:
   -h, --help            show this help message and exit
+
+Required arguments:
   --config_file CONFIG_FILE
-                        REQUIRED. See: neoantigen-luna.config in the repo
+                        See: neoantigen-luna.config in the repo
+  --sample_id SAMPLE_ID
+                        sample_id used to limit neoantigen prediction to
+                        identify mutations associated with the patient in the
+                        MAF (column 16).
+  --output_dir OUTPUT_DIR
+                        output directory
+  --maf_file MAF_FILE   expects a CMO maf file (post vcf2maf.pl)
   --normal_bam NORMAL_BAM
                         full path to normal bam file. Either --normal_bam or
                         --hla_file are required.
+
+Optional arguments:
   --hla_file HLA_FILE   POLYSOLVER output file (winners.hla.txt) for the
                         sample. If not provided,POLYSOLVER is run. Either
                         --normal_bam or --hla_file are required.
-  --maf_file MAF_FILE   REQUIRED. expects a CMO maf file (post vcf2maf.pl)
-  --sample_id SAMPLE_ID
-                        REQUIRED. sample_id used to limit neoantigen
-                        prediction to identify mutations associated with the
-                        patient in the MAF (column 16).
-  --output_dir OUTPUT_DIR
-                        REQUIRED. output directory
+  --peptide_lengths PEPTIDE_LENGTHS
+                        comma-separated numbers indicating the lengths of
+                        peptides to generate. Default: 9,10
   --keep_tmp_files      keeps POLYSOLVER's temporary files. for debugging
                         purposes. Note: TMP files can be more than 5GB.
                         Default: true
@@ -43,8 +60,6 @@ optional arguments:
                         Default: false
   --force_rerun_netmhc  ignores any existing netMHCpan output and re-runs it.
                         Default: false
-
-NOTES:  This pipeline is not optimized for run time efficiency.
 ```
 ## Output
 
@@ -55,24 +70,26 @@ NOTES:  This pipeline is not optimized for run time efficiency.
 
 ### Neoantigen binding affinties annotated MAF
 ```
-<output_dir>/<sample_id>.netMHCpan.neoantigens.maf  (only the peptide with the highest binding affinity is selected for each mutation) 
-<output_dir>/sample_processedcombinedNETMHCpan_out.txt  (all predicted peptides for each mutation)
+<sample_id>.neoantigens.maf. (peptide with the highest binding affinity is incorporated into the original .maf for each non-syn mutation) 
+<sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms
 ```
-The following columns are appended to the input maf.
+The following columns are appended to the input `.maf`.
 
 | Column Name        | Description           |
 | ------------- |:-------------|
-| key      | a unique key that can be used to find other peptides predicted for the same mutation (in `sample_processedcombinedNETMHCpan_out.txt`)  |
-| HLA | HLA allele to which this peptide is predicted to bind |
-| pep_length | length of the peptide |
-| pep_mut | mutated peptide |
-| aff_mut | binding affinity of mutated peptide (nM) |
-| rank_mut | Rank of the predicted affinity compared to a set of 400.000 random natural peptides (see http://www.cbs.dtu.dk/services/NetMHC/output.php) |
-| pep_wt | WT peptide |
-| aff_wt | binding affinity of WT peptide (nM) |
-| rank_wt | Rank of the predicted affinity compared to a set of 400.000 random natural peptides (see http://www.cbs.dtu.dk/services/NetMHC/output.php) |
-| total_num_neoantigens | # of other neoantigen peptides predicted for this mutation  |
+| neo_maf_identifier_key      | a unique key that can be used to find other peptides predicted for the same mutation (in `.all_neoantigen_predictions.txt`)  |
+| neo_best_icore_peptide | neopeptide sequence for the strongest binder | 
+| neo_best_rank | binding rank for the strongest binder | 
+| neo_best_binding_affinity | binding affinity for the strongest binder | 
+| neo_best_binder_classification | binding classification for the strongest binder (`Non-Binder`, `Strong Binder`, `Weak Binder`) | 
+| neo_best_is_in_reference |  `TRUE`/`FALSE` indicating whether the strongest binder peptide is in the reference peptidome | 
+| neo_best_algorithm | algorithm predicting the strongest binder | 
+| neo_best_hla_allele | hla allele for the strongest binder | 
+| neo_n_all_binders | total # of binders (including non-binders) | 
+| neo_n_strong_binders |  total # of strong binders | 
+| neo_n_weak_binders | total # of weak binders |
 
+The column description for `.all_neoantigen_predictions.txt` can be found in: [http://www.cbs.dtu.dk/services/NetMHC/output.php](http://www.cbs.dtu.dk/services/NetMHC/output.php).
 ## Example
 
 ```
@@ -80,6 +97,6 @@ python neoantigen.py --config_file neoantigen-luna.config \
                      --sample_id <sample_id> \
                      --normal_bam <normal.bam> \
                      --output_dir <output_dir> \
-                     --maf_file <cmo_maf_file>
+                     --maf_file <cmo_vep_annotated_maf_file>
 ```
 
