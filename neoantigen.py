@@ -76,7 +76,8 @@ def main():
     optional_arguments.add_argument('--force_rerun_netmhc',
                         required=False,
                         help='ignores any existing netMHCpan output and re-runs it. Default: false',
-                        action='store_true')
+                        action='store_true')                        
+
 
     args = parser.parse_args()
 
@@ -233,8 +234,8 @@ def main():
     mutations = []
     out_fa = open(mutated_sequences_fa, 'w')
     try:
-        reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cdna.fa.gz'
-        reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cds.fa.gz'
+        #reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cdna.fa.gz'
+        #reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/hs.impact.cds.fa.gz'
         #reference_cdna_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cdna.all.fa.gz'
         #reference_cds_file = '/ifs/res/taylorlab/bandlamc/neoantigens/Homo_sapiens.GRCh37.75.cds.all.fa.gz'
         # reference_cdna_file = '/Users/bandlamc/tmp/Homo_sapiens.GRCh37.75.cdna.all.fa'
@@ -437,7 +438,6 @@ def execute_cmd(cmd):
     logger = logging.getLogger('neoantigen')
     logger.debug('Executing command: ' + cmd)
     output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-    logger.debug('command output: ' + output)
     logger.debug('Done')
 
 def load_transcript_fasta(fa_file):
