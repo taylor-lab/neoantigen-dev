@@ -82,7 +82,7 @@ The following columns are appended to the input `.maf`.
 | neo_best_rank | binding rank for the strongest binder | 
 | neo_best_binding_affinity | binding affinity for the strongest binder | 
 | neo_best_binder_classification | binding classification for the strongest binder (`Non Binder`, `Strong Binder`, `Weak Binder`) | 
-| neo_best_is_in_reference |  `TRUE`/`FALSE` indicating whether the strongest binder peptide is in the reference peptidome | 
+| neo_best_is_in_wt_peptidome |  `TRUE`/`FALSE` indicating whether the strongest binder peptide is in the reference peptidome | 
 | neo_best_algorithm | algorithm predicting the strongest binder | 
 | neo_best_hla_allele | hla allele for the strongest binder | 
 | neo_n_peptides_evaluated | total # of all peptides evaluated (unique icore peptides) | 
