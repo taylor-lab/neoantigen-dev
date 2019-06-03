@@ -578,19 +578,22 @@ class binding_predictions(object):
     def add_neopeptide(self, np):
         self.neopeptides.append(np)
 
+    def get_best_per_icore(self):
+        return [x for x in self.neopeptides if x.best_binder_for_icore_group]
+
     def get_strong_binders(self):
-        return [x for x in self.neopeptides if x.is_strong_binder()]
+        return [x for x in self.get_best_per_icore() if x.is_strong_binder()]
 
     def get_weak_binders(self):
-        return [x for x in self.neopeptides if x.is_weak_binder()]
+        return [x for x in self.get_best_per_icore() if x.is_weak_binder()]
 
     def get_all_binders(self):
-        return [x for x in self.neopeptides if x.is_strong_binder() or x.is_weak_binder()]
+        return [x for x in self.get_best_per_icore() if x.is_strong_binder() or x.is_weak_binder()]
 
     def get_best_binder(self):
-        if (len(self.neopeptides) == 0):
+        if (len(self.get_best_per_icore()) == 0):
             return None
-        return sorted(self.neopeptides, key=lambda x: x.rank, reverse=False)[0]
+        return sorted(self.get_best_per_icore(), key=lambda x: x.rank, reverse=False)[0]
 
 #
 # mutation class holds each row in the maf and has 
@@ -766,7 +769,7 @@ class mutation(object):
             row['neo_best_is_in_wt_peptidome'] = best_binder.is_in_wt_peptidome
             row['neo_best_algorithm'] = best_binder.algorithm
             row['neo_best_hla_allele'] = best_binder.hla_allele
-            row['neo_n_all_binders'] = len(strong_binders) + len(weak_binders)
+            row['neo_n_peptides_evaluated'] = len(self.predicted_neopeptides.get_best_per_icore())
             row['neo_n_strong_binders'] = len(strong_binders)
             row['neo_n_weak_binders'] = len(weak_binders)
         else:
@@ -777,7 +780,7 @@ class mutation(object):
             row['neo_best_is_in_wt_peptidome'] = ''
             row['neo_best_algorithm'] = ''
             row['neo_best_hla_allele'] = ''
-            row['neo_n_all_binders'] = 0
+            row['neo_n_peptides_evaluated'] = 0
             row['neo_n_strong_binders'] = 0
             row['neo_n_weak_binders'] = 0
         return row
