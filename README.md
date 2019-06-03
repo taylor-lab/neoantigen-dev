@@ -81,15 +81,25 @@ The following columns are appended to the input `.maf`.
 | neo_best_icore_peptide | neopeptide sequence for the strongest binder | 
 | neo_best_rank | binding rank for the strongest binder | 
 | neo_best_binding_affinity | binding affinity for the strongest binder | 
-| neo_best_binder_classification | binding classification for the strongest binder (`Non-Binder`, `Strong Binder`, `Weak Binder`) | 
+| neo_best_binder_classification | binding classification for the strongest binder (`Non Binder`, `Strong Binder`, `Weak Binder`) | 
 | neo_best_is_in_reference |  `TRUE`/`FALSE` indicating whether the strongest binder peptide is in the reference peptidome | 
 | neo_best_algorithm | algorithm predicting the strongest binder | 
 | neo_best_hla_allele | hla allele for the strongest binder | 
-| neo_n_all_binders | total # of binders (including non-binders) | 
+| neo_n_peptides_evaluated | total # of all peptides evaluated (unique icore peptides) | 
 | neo_n_strong_binders |  total # of strong binders | 
 | neo_n_weak_binders | total # of weak binders |
 
-The column description for `.all_neoantigen_predictions.txt` can be found in: [http://www.cbs.dtu.dk/services/NetMHC/output.php](http://www.cbs.dtu.dk/services/NetMHC/output.php).
+The column description for `.all_neoantigen_predictions.txt` can be found in: [http://www.cbs.dtu.dk/services/NetMHC/output.php](http://www.cbs.dtu.dk/services/NetMHC/output.php). Additional columns are:
+
+The following columns are appended to the input `.maf`.
+
+| Column Name        | Description           |
+| ------------- |:-------------|
+| binder_class      | `Non Binder`, `Strong Binder` (`rank < 0.5 or affinity < 50`), `Weak Binder` (`rank < 2 or affinity < 500`) |
+| best_binder_for_icore_group | `TRUE`/`FALSE` indicating if the binding prediction is the strongest among all the HLA-alleles/algorithms for the given icore peptide. | 
+| is_in_wt_peptidome | if the peptide is present in any other protein in the entire peptidome | 
+| neo_maf_identifier_key | a unique key that can be used to find other peptides predicted for the same mutation (in `.neoantigens.maf`)  | 
+
 ## Example
 
 ```
