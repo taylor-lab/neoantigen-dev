@@ -388,18 +388,28 @@ def main():
         # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
         logger.info('Reading predictions from the two algorithms and evaluating binders')
         np_df = pd.read_table(combined_output).drop_duplicates()
+
+        ## netMHC-4.0 requires and outputs alleles in a different format; just correct the name
         np_df['hla_allele'] = np_df['hla_allele'].map(lambda a: reformat_hla_allele(a))
-        np_df['binder_class'] = 'non binder' ## keep the casing for 'non' as is; for sorting purpose
+
+        ##
+        ## This determination of Strong/Weak binder is based on Swanton's PMID: 30894752. 
+        ##
+        np_df['binder_class'] = 'non binder' ## keep the casing for 'non' as is; for sorting purpose later
         np_df.loc[(np_df['affinity'] < 500) | (np_df['rank'] < 2), 'binder_class'] = 'Weak Binder'
         np_df.loc[(np_df['affinity'] < 50 ) | (np_df['rank'] < 0.5), 'binder_class'] = 'Strong Binder'
 
+        ##
         ## for each 'peptide', multiple binding predictions will be generated for different HLA alleles and by
-        ## different algorithms. 'best_binder_for_icore_group' represents the best binding prediction across
-        ## the different alleles/algorithms for a given icore.
+        ## different algorithms. 'best_binder_for_icore_group' flag (True/False) represents the best binding 
+        ## prediction across the different alleles/algorithms for a given icore. Here, we are sorting by the 
+        ## columns below to select the one with best binding prediction and only the top row is retained.
+        ##
         np_by_peptide_df = np_df.sort_values(['binder_class', 'rank', 'affinity'], 
                                     ascending=[True, True, True]).groupby('icore').first().reset_index()
         np_by_peptide_df['best_binder_for_icore_group'] = True
 
+        ## annotate np_df with the 'best_binder_for_icore_group'
         np_annotated_df = pd.merge(np_df, np_by_peptide_df, how='left', 
                         on=['algorithm', 'hla_allele', 'peptide', 'core', 
                             'icore', 'score', 'affinity', 'rank', 'binder_class'])
@@ -420,15 +430,15 @@ def main():
         # make a list of all unique peptides
         all_peptides = ({row['icore']:1 for index, row in np_df.iterrows()}).keys()
 
-        # parallelize and search each icore peptide against the reference peptidome.
+        # parallelize and search each icore peptide against the reference peptidome. Note: deliberately hard-coded 4 cores for now.
         results = Parallel(n_jobs=4)(delayed(find_in_reference_peptides)(all_peptides, i, 4, ref_aa_str) for i in range(1, 5))
-        
+
         # construct a dataframe of the peptides that are found in other protein coding genes
         icore_in_reference = pd.DataFrame(data={item:1 for sublist in results for item in sublist}.keys(), columns=['icore'])
         icore_in_reference['is_in_wt_peptidome'] = True
         logger.info('...completed!')
 
-        # join against the neopeptide dataframe -- that will be written to output file
+        # annotate the neopeptide dataframe with 'is_in_wt_peptidome' -- that will be written to output file
         np_annotated_df = pd.merge(np_annotated_df, icore_in_reference, how='left', on=['icore'])
         np_annotated_df['is_in_wt_peptidome'] = np_annotated_df['is_in_wt_peptidome'].fillna(False)
         
