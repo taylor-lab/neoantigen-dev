@@ -1,4 +1,5 @@
-#!/opt/common/CentOS_6-dev/python/python-2.7.10/bin/python
+#!/usr/bin/env python2
+
 import os, sys, subprocess, psutil
 import argparse, re, errno
 import time, datetime, dateutil.parser
