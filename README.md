@@ -12,10 +12,15 @@ The pipeline has four main steps:
 
 
 ## Install
-Clone the repo and you are ready to go:
+
+Clone the repo and install any necessary python2 libraries from `requirements.txt`. Note that this repo is currently only compatible with Python 2.7, not Python 3.x :
+
 ```bash
 git clone https://github.com/taylor-lab/neoantigen-dev.git
+cd neoantigen-dev
+pip install -r requirements.txt
 ```
+
 
 ## Usage
 NOTE: For POLYSOLVER step, the pipeline requires 8 cores. 
