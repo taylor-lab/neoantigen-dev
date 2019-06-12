@@ -6,7 +6,7 @@ MHC Class I neoantigen prediction pipeline from IM5/IM6/WES/WGS. Takes Normal `.
 The pipeline has four main steps:
 
 1. **Genotype HLA**. genotyping performed using POLYSOLVER. 
-2. **Construct mutated peptides**.  For non-synonymous mutations, generates mutated peptide sequences based on `HGVSc`.  _NOTE_: `.maf` file should be VEP annotated using `cmo_maf2maf`. TODO: Generate mutated sequences for fusions.
+2. **Construct mutated peptides**.  For non-synonymous mutations, generates mutated peptide sequences based on `HGVSc`.  _NOTE_: `.maf` file should be VEP annotated using `cmo_maf2maf  --version 1.6.14 --vep-release 88` **using this EXACT VERSION**. TODO: Generate mutated sequences for fusions.
 3. **Run NetMHCpan-4.0 and NetMHC-4.0**. using default parameters for each algorithm. 
 4. **Post-processing**. compiles predictions from both algorithms and finds strongest binder for each non-synonymous mutation. Also, each predicted neopeptide is searched against the entire reference peptidome to make sure it is a true neopeptide. `is_in_wt_peptidome` column reflects that. TODO: Incorporate neoantigen quality from [Lukzsa et al., Nature 2017](https://www.nature.com/articles/nature24473)
 
