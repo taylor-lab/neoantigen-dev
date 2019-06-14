@@ -1,6 +1,13 @@
 language: python
+dist: xenial   # required for Python >= 3.7
 python:
-    - 2.7
+    - "3.3"
+    - "3.4"
+    - "3.5"
+    - "3.6"
+    - "3.7"
+    # PyPy versions
+    - "pypy3.5"
 install:
     - sudo apt-get -y update
     - pip install codecov
