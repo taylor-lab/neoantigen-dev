@@ -8,7 +8,7 @@ import pandas as pd
 import logging, logging.handlers
 import gzip
 import copy
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 from joblib import Parallel, delayed
 
 #####
@@ -90,7 +90,7 @@ def main():
     
     peptide_lengths = [9, 10]
     if args.peptide_lengths is not None:
-        peptide_lengths = map(int, str(args.peptide_lengths).split(','))
+        peptide_lengths = list(map(int, str(args.peptide_lengths).split(',')))
 
     if args.config_file is None:
         config_file_path = os.path.dirname(os.path.realpath(__file__)) + '/neoantigen-luna.config'
@@ -98,7 +98,7 @@ def main():
         config_file_path = str(args.config_file)
 
     if not os.path.exists(config_file_path):
-        print 'Error: could not open config file: ' + config_file_path + '. Exiting.'
+        print('Error: could not open config file: ' + config_file_path + '. Exiting.')
         exit(1)
 
     keep_tmp_files = False
@@ -115,19 +115,19 @@ def main():
         force_netmhc = True
 
     if args.normal_bam is None and args.hla_file is None:
-        print >> sys.stderr, 'Error: --normal_bam or --hla_file is required. Exiting.'
+        print('Error: --normal_bam or --hla_file is required. Exiting.', file=sys.stderr)
         exit(1)
 
     if args.normal_bam is not None and not os.path.exists(normal_bamfile):
-        print >> sys.stderr, 'Error: --normal_bam '' + normal_bamfile + '' does not exist. Exiting.'
+        print('Error: --normal_bam '' + normal_bamfile + '' does not exist. Exiting.', file=sys.stderr)
         exit(1)
 
     if args.hla_file is not None and not os.path.exists(hla_file):
-        print >> sys.stderr, 'Error: --hla_file '' + hla_file + '' does not exist. Exiting.'
+        print('Error: --hla_file '' + hla_file + '' does not exist. Exiting.', file=sys.stderr)
         exit(1)
 
     if not os.path.exists(maf_file):
-        print >> sys.stderr, 'Error: --maf_file '' + maf_file + '' does not exist. Exiting.'
+        print('Error: --maf_file '' + maf_file + '' does not exist. Exiting.', file=sys.stderr)
         exit(1)
 
     os.system('mkdir -p ' + output_dir)
@@ -424,18 +424,18 @@ def main():
         logger.info('Checking if the icore-peptide can be generated from WT sequence from the entire peptidome...')
         
         ref_aa_str = ''
-        for cds in cds_seqs.values():
+        for cds in list(cds_seqs.values()):
             if cds[0:3] == 'ATG':
                 ref_aa_str += mutation.cds_to_aa(cds) + '|'
 
         # make a list of all unique peptides
-        all_peptides = ({row['icore']:1 for index, row in np_df.iterrows()}).keys()
+        all_peptides = list(({row['icore']:1 for index, row in np_df.iterrows()}).keys())
 
         # parallelize and search each icore peptide against the reference peptidome. Note: deliberately hard-coded 4 cores for now.
         results = Parallel(n_jobs=4)(delayed(find_in_reference_peptides)(all_peptides, i, 4, ref_aa_str) for i in range(1, 5))
 
         # construct a dataframe of the peptides that are found in other protein coding genes
-        icore_in_reference = pd.DataFrame(data={item:1 for sublist in results for item in sublist}.keys(), columns=['icore'])
+        icore_in_reference = pd.DataFrame(data=list({item:1 for sublist in results for item in sublist}.keys()), columns=['icore'])
         icore_in_reference['is_in_wt_peptidome'] = True
         logger.info('...completed!')
 
@@ -671,7 +671,7 @@ class mutation(object):
         
         ## append the 3'UTR to the CDS -- to account for non stop mutations and indels that shift the canonical stop
         if not self.cds_seq in self.cdna_seq:
-            print 'Skipping because the CDS is not contained within cDNA. Note: only 2 transcripts/peptides are like this'
+            print('Skipping because the CDS is not contained within cDNA. Note: only 2 transcripts/peptides are like this')
             return None
 
         hgvsc = self.maf_row['HGVSc']
