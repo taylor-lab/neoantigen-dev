@@ -11,7 +11,7 @@ The pipeline has four main steps:
 
 ## Install
 
-Clone the repo and install any necessary Python libraries from `requirements.txt`. Note that this repo is currently only compatible with Python 3, not Python 2.x:
+Clone the repo and install any necessary Python libraries from `requirements.txt`. This repo is currently compatible with Python 2 and 3. To install:
 
 ```bash
 git clone https://github.com/taylor-lab/neoantigen-dev.git
