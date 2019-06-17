@@ -374,9 +374,9 @@ def main():
         ###
         parse_output_cmd = "grep -P \"^\\s*\\d+\\s*HLA\\-\"  | sed -r \'s/\\s+/\\t/g\' | sed -r \'s/^\\s*//g\' | cut -f 2-4,10,12-14 | "
         combined_output = sample_path_pfx + '.netmhcpan_netmhc_combined.output.txt'
-        generate_output_cmd = 'echo -e \'algorithm\\thla_allele\\tpeptide\\tcore\\ticore\\tscore\\taffinity\\trank\'' + \
-                                ' > ' + combined_output + '; ' + \
-                                ' cat ' + netmhcpan_output_pfx + '.txt | ' + \
+        column_data = ['algorithm', 'hla_allele', 'peptide', 'core', 'icore', 'score','affinity', 'rank']
+        open(combined_output, 'wb').write("\t".join(column_data) + "\n")
+        generate_output_cmd = 'cat ' + netmhcpan_output_pfx + '.txt | ' + \
                                 parse_output_cmd + \
                                 ' awk \'{print \"NetMHCpan-4.0\\t\"$0}\' >> ' + combined_output + '; ' + \
                                 ' cat ' + netmhc_output_pfx + '.txt | ' + \
