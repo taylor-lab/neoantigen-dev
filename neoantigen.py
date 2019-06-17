@@ -11,7 +11,6 @@ import gzip
 import copy
 from joblib import Parallel, delayed
 
-
 #####
 # Neoantigen prediction pipeline. Four main steps:
 #       (1) Genotype HLA using POLYSOLVER,
@@ -220,7 +219,7 @@ def main():
 
     ## parse hla-alleles into the format that is required by NetMHC
     if os.path.isfile(os.path.abspath(hla_file)):
-        for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True)):
+        for allele in re.split('\n|\t', subprocess.check_output('cut -f 2-3 ' + hla_file, shell=True).decode('utf-8')):
             if allele == '':
                 continue
             levels = allele.split('_')
@@ -245,7 +244,7 @@ def main():
         logger.info('Finished loading reference CDS/cDNA sequences...')
 
         logger.info('Reading MAF file and constructing mutated peptides...')
-        maf_df = pd.read_table(maf_file, comment='#', low_memory=False, header=0)
+        maf_df = pd.read_csv(maf_file, comment='#', low_memory=False, header=0, sep="\t")
         n_muts = n_non_syn_muts = n_missing_tx_id = 0
         for index, row in maf_df.iterrows():
             cds_seq = ''
@@ -511,7 +510,7 @@ def load_transcript_fasta(fa_file):
     idx = 0
     while idx < len(lines):
         line = lines[idx]
-        m = re.search('^>(ENST\d+)\s', line)
+        m = re.search('^>(ENST\d+)\s', line.decode('utf-8'))
         transcript_id = ''
         if not m:
             sys.exit('Error parsing transcript file ' + fa_file + ' at line: ' + line)
@@ -520,8 +519,8 @@ def load_transcript_fasta(fa_file):
 
         idx = idx + 1
         seq_str = ''
-        while idx < len(lines) and not re.match('^>ENST', lines[idx]):
-            seq_str = seq_str + lines[idx].strip()
+        while idx < len(lines) and not re.match('^>ENST', lines[idx].decode('utf-8')):
+            seq_str = seq_str + lines[idx].decode('utf-8').strip()
             idx = idx + 1
             seqs[transcript_id] = seq_str
 
