@@ -1,4 +1,5 @@
-#!/usr/bin/env python2
+from __future__ import print_function
+from six.moves.configparser import ConfigParser
 
 import os, sys, subprocess, psutil
 import argparse, re, errno
@@ -10,9 +11,6 @@ import gzip
 import copy
 from joblib import Parallel, delayed
 
-# support for Python 2 and 3
-from __future__ import print_function
-from six.moves.configparser import ConfigParser
 
 #####
 # Neoantigen prediction pipeline. Four main steps:
