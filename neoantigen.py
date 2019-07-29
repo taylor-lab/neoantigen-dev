@@ -336,7 +336,7 @@ def main():
             logger.info('Starting NetMHC 4.0...')
             #####
             # For netMHC-4 prediction, only predict on alleles for which data exists
-            netmhc_alleles = list(pd.read_table(netmhc4_alleleslist, header=None, usecols=[0])[0])
+            netmhc_alleles = list(pd.read_csv(netmhc4_alleleslist, header=None, usecols=[0])[0], sep='\t')
             alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
             logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
 
@@ -388,7 +388,7 @@ def main():
 
         # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
         logger.info('Reading predictions from the two algorithms and evaluating binders')
-        np_df = pd.read_table(combined_output).drop_duplicates()
+        np_df = pd.read_csv(combined_output, sep='\t').drop_duplicates()
 
         ## netMHC-4.0 requires and outputs alleles in a different format; just correct the name
         np_df['hla_allele'] = np_df['hla_allele'].map(lambda a: reformat_hla_allele(a))
