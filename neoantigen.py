@@ -10,6 +10,7 @@ import logging, logging.handlers
 import gzip
 import copy
 from joblib import Parallel, delayed
+from collections import OrderedDict
 
 #####
 # Neoantigen prediction pipeline. Four main steps:
@@ -456,10 +457,11 @@ def main():
             maf_output.append(mut.get_maf_row_to_print())
             predictions_output.extend(mut.get_predictions_rows_to_print())
 
-        maf_output_df = pd.DataFrame.from_items([(s.name, s) for s in maf_output]).T
+
+        maf_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in maf_output).T
         maf_output_df.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
 
-        predictions_output_df = pd.DataFrame.from_items([(s.name, s) for s in predictions_output]).T
+        predictions_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in predictions_output)).T
         predictions_output_df.to_csv(sample_path_pfx + '.all_neoantigen_predictions.txt', sep='\t', index=False)
 
     except Exception:
