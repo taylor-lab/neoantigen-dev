@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from __future__ import print_function
 from six.moves.configparser import ConfigParser
 
@@ -337,7 +339,7 @@ def main():
             logger.info('Starting NetMHC 4.0...')
             #####
             # For netMHC-4 prediction, only predict on alleles for which data exists
-            netmhc_alleles = list(pd.read_csv(netmhc4_alleleslist, header=None, usecols=[0])[0], sep='\t')
+            netmhc_alleles = list(pd.read_csv(netmhc4_alleleslist, header=None, usecols=[0], sep='\t')[0])
             alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
             logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
 
