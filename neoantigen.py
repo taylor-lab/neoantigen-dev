@@ -458,7 +458,7 @@ def main():
             predictions_output.extend(mut.get_predictions_rows_to_print())
 
 
-        maf_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in maf_output).T
+        maf_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in maf_output)).T
         maf_output_df.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
 
         predictions_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in predictions_output)).T
