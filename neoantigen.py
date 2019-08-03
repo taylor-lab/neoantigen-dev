@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from __future__ import print_function
 from six.moves.configparser import ConfigParser
 
@@ -10,6 +12,7 @@ import logging, logging.handlers
 import gzip
 import copy
 from joblib import Parallel, delayed
+from collections import OrderedDict
 
 #####
 # Neoantigen prediction pipeline. Four main steps:
@@ -336,7 +339,7 @@ def main():
             logger.info('Starting NetMHC 4.0...')
             #####
             # For netMHC-4 prediction, only predict on alleles for which data exists
-            netmhc_alleles = list(pd.read_table(netmhc4_alleleslist, header=None, usecols=[0])[0])
+            netmhc_alleles = list(pd.read_csv(netmhc4_alleleslist, header=None, usecols=[0], sep='\t')[0])
             alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
             logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
 
@@ -388,7 +391,7 @@ def main():
 
         # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
         logger.info('Reading predictions from the two algorithms and evaluating binders')
-        np_df = pd.read_table(combined_output).drop_duplicates()
+        np_df = pd.read_csv(combined_output, sep='\t').drop_duplicates()
 
         ## netMHC-4.0 requires and outputs alleles in a different format; just correct the name
         np_df['hla_allele'] = np_df['hla_allele'].map(lambda a: reformat_hla_allele(a))
@@ -456,10 +459,11 @@ def main():
             maf_output.append(mut.get_maf_row_to_print())
             predictions_output.extend(mut.get_predictions_rows_to_print())
 
-        maf_output_df = pd.DataFrame.from_items([(s.name, s) for s in maf_output]).T
+
+        maf_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in maf_output)).T
         maf_output_df.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
 
-        predictions_output_df = pd.DataFrame.from_items([(s.name, s) for s in predictions_output]).T
+        predictions_output_df = pd.DataFrame.from_dict(OrderedDict([s.name, s] for s in predictions_output)).T
         predictions_output_df.to_csv(sample_path_pfx + '.all_neoantigen_predictions.txt', sep='\t', index=False)
 
     except Exception:
