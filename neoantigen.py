@@ -247,7 +247,7 @@ def main():
         logger.info('Finished loading reference CDS/cDNA sequences...')
 
         logger.info('Reading MAF file and constructing mutated peptides...')
-        maf_df = pd.read_csv(maf_file, comment='#', low_memory=False, header=0, sep="\t")
+        maf_df = skip_lines_start_with(maf_file, "#", low_memory=False, header=0, sep="\t")
         n_muts = n_non_syn_muts = n_missing_tx_id = 0
         for index, row in maf_df.iterrows():
             cds_seq = ''
@@ -472,6 +472,19 @@ def main():
         exit(1)
     logger.info('neoantigen-dev pipeline execution completed.\nExiting!')
 
+# skip the header lines that start with "#"    
+def skip_lines_start_with(fle, junk,**kwargs):
+    if os.stat(fle).st_size == 0:
+        raise ValueError("File is empty")
+    with open(fle) as f:
+        pos = 0
+        cur_line = f.readline()
+        while cur_line.startswith(junk):
+            pos = f.tell()
+            cur_line = f.readline()
+        f.seek(pos)
+        return pd.read_csv(f, **kwargs)
+    
 # helper function to properly re-format hla_allele
 def reformat_hla_allele(hla_allele):
     if re.match(r'HLA-\w\d\d\d\d$', hla_allele):
