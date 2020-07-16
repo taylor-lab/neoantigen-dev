@@ -295,10 +295,23 @@ def main():
 
         # create empty neoantigens.maf file if there are no mutations
         if n_muts == 0:
-            logger.info('No mutations in this tumor. Creating empty .neoantigens.maf file')
+            logger.info('No mutations in this tumor. Creating empty .neoantigens.maf and .all_neoantigen_predictions.txt file')
             logger.info('Exiting neoantigen pipeline')
-            execute_cmd('touch ' + sample_path_pfx + '.neoantigens.maf')
-            exit(1)
+            maf_df_empty = maf_df
+            maf_df_empty['neo_maf_identifier_key'] = ''
+            maf_df_empty['neo_best_icore_peptide'] = ''
+            maf_df_empty['neo_best_rank'] = ''
+            maf_df_empty['neo_best_binding_affinity'] = ''
+            maf_df_empty['neo_best_binder_class'] = ''
+            maf_df_empty['neo_best_is_in_wt_peptidome'] = ''
+            maf_df_empty['neo_best_algorithm'] = ''
+            maf_df_empty['neo_best_hla_allele'] = ''
+            maf_df_empty['neo_n_peptides_evaluated'] = ''
+            maf_df_empty['neo_n_strong_binders'] = ''
+            maf_df_empty['neo_n_weak_binders'] = ''
+            maf_df_empty.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
+            execute_cmd('touch ' + sample_path_pfx + '.all_neoantigen_predictions.txt')
+            exit(0)
 
     except Exception:
         logger.error('Error while generating mutated peptides')
