@@ -311,7 +311,7 @@ def main():
             maf_df_empty['neo_n_weak_binders'] = ''
             maf_df_empty.to_csv(sample_path_pfx + '.neoantigens.maf' , sep='\t', index=False)
             execute_cmd('touch ' + sample_path_pfx + '.all_neoantigen_predictions.txt')
-            exit(1)
+            exit(0)
 
     except Exception:
         logger.error('Error while generating mutated peptides')
