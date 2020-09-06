@@ -14,7 +14,7 @@ from joblib import Parallel, delayed
 # Neoantigen prediction pipeline. Four main steps: 
 #       (1) Genotype HLA using POLYSOLVER, 
 #       (2) Constructed mutated peptide sequences from HGVSp/HGVSc 
-#       (3) Run NetMHC-4.0 + NetMHCpan-4.0
+#       (3) Run NetMHCpan
 #       (4) Gather results and generate: 
 #               - <sample_id>.neoantigens.maf: original maf with neoantigen prediction columns added
 #               - <sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms
@@ -25,7 +25,7 @@ def main():
         '# Neoantigen prediction pipeline. Four main steps: \n'
         '\t\t(1) Genotype HLA using POLYSOLVER, \n'
         '\t\t(2) Constructed mutated peptide sequences from HGVSp/HGVSc \n'
-        '\t\t(3) Run NetMHC-4.0 + NetMHCpan-4.0 \n'
+        '\t\t(3) Run NetMHCpan \n'
         '\t\t(4) Gather results and generate: \n'
         '\t\t\t\t- <sample_id>.neoantigens.maf: original maf with neoantigen prediction columns added \n'
         '\t\t\t\t- <sample_id>.all_neoantigen_predictions.txt: all the predictions made for all peptides by both the algorithms \n'
@@ -87,7 +87,7 @@ def main():
     hla_file = str(args.hla_file)
     sample_id = str(args.sample_id)
     
-    peptide_lengths = [9, 10]
+    peptide_lengths = [9, 10, 11]
     if args.peptide_lengths is not None:
         peptide_lengths = map(int, str(args.peptide_lengths).split(','))
 
@@ -164,9 +164,9 @@ def main():
     ### Load from config file
     reference_cdna_file = config.get('Reference Paths', 'GRCh37cdna')
     reference_cds_file = config.get('Reference Paths', 'GRCh37cds')
-    netmhc4_bin = config.get('NetMHCpan', 'netmhc4_bin_path')
-    netmhc4_alleleslist = config.get('NetMHCpan', 'netmhc4_alleleslist')
-    netmhcpan4_bin = config.get('NetMHCpan', 'netmhcpan4_bin_path')
+
+    netmhcpan_bin = config.get('NetMHC', 'netmhcpan_bin_path')
+    netmhcpan_version = config.get('NetMHC', 'netmhcpan_bin_version')
 
     if not os.path.exists(reference_cdna_file) or not os.path.exists(reference_cds_file):
         sys.exit('Could not find reference CDNA/CDS files: ' + '\n\t' + reference_cdna_file + '\n\t' + reference_cds_file)
@@ -266,7 +266,7 @@ def main():
                 n_missing_tx_id += 1
                 
             if cds_seq != '' and mut.is_non_syn():
-                mut.generate_translated_sequences(max(peptide_lengths))         
+                mut.generate_translated_sequences(max(peptide_lengths))
 
             if len(mut.mt_altered_aa) > 5:
                 out_fa.write('>' + mut.identifier_key + '_mut\n')
@@ -279,7 +279,6 @@ def main():
                 debug_out_fa.write('wt_full_aa: ' + mut.wt_aa + '\n')
                 debug_out_fa.write('mt_full_cds: ' + mut.mt_cds + '\n')
                 debug_out_fa.write('mt_full_aa: ' + mut.mt_aa + '\n')
-                
 
             mutations.append(mut)
         out_fa.close()
@@ -302,22 +301,22 @@ def main():
         exit(1)
 
     #######################
-    ### Run NetMHCpan 4.0, netMHC 4.0
+    ### Run NetMHCpan
     #######################
     try:
         logger.info('')
-        logger.info('Running MHC--peptide binding predictions using NetMHCpan 4.0...')
+        logger.info('Running MHC--peptide binding predictions using NetMHCpan...')
     
-        netmhcpan_output_pfx = sample_path_pfx + '.netmhcpan4.output'
+        netmhcpan_output_pfx = sample_path_pfx + '.netmhcpan.output'
         if not force_netmhc and check_file_exists_and_not_empty(netmhcpan_output_pfx + '.txt'):
-            logger.info('Previous run of NetMHCpan-4.0 found... Skipping!')
+            logger.info('Previous run of NetMHCpan found... Skipping!')
         else:
             #####
-            logger.info('Starting NetMHCpan 4.0...')
+            logger.info('Starting NetMHCpan ...')
             #####
             logger.info('Predicting on the following HLA-alleles: ' + ','.join(sorted(set(hla_alleles))))
             run_netmhcpan_cmd = 'rm -f ' + netmhcpan_output_pfx + '.txt; '+ \
-                                netmhcpan4_bin + ' -s -BA ' + \
+                                netmhcpan_bin + ' -s -BA ' + \
                                 ' -a ' + ','.join(sorted(set(hla_alleles))) + \
                                 ' -f ' + mutated_sequences_fa + \
                                 ' -l ' + ','.join(map(str, peptide_lengths)) + \
@@ -327,35 +326,35 @@ def main():
                                 ' > ' + netmhcpan_output_pfx + '.txt'
             execute_cmd(run_netmhcpan_cmd)
 
-        netmhc_output_pfx = sample_path_pfx + '.netmhc4.output'
-        if not force_netmhc and check_file_exists_and_not_empty(netmhc_output_pfx + '.txt'):
-            logger.info('Previous run of NetMHC-4.0 found... Skipping!')
-        else:
-            #####
-            logger.info('Starting NetMHC 4.0...')
-            #####
-            # For netMHC-4 prediction, only predict on alleles for which data exists
-            netmhc_alleles = list(pd.read_table(netmhc4_alleleslist, header=None, usecols=[0])[0])
-            alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
-            logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
+        # netmhc_output_pfx = sample_path_pfx + '.netmhc.output'
+        # if not force_netmhc and check_file_exists_and_not_empty(netmhc_output_pfx + '.txt'):
+        #     logger.info('Previous run of NetMHC found... Skipping!')
+        # else:
+        #     #####
+        #     logger.info('Starting NetMHC ...')
+        #     #####
+        #     # For netMHC prediction, only predict on alleles for which data exists
+        #     netmhc_alleles = list(pd.read_table(netmhc_alleleslist, header=None, usecols=[0])[0])
+        #     alleles_for_prediction = list(set(netmhc_alleles) & set([x.replace(':', '') for x in hla_alleles]))
+        #     logger.info('Only predicting on the following HLA-alleles: ' + ','.join(sorted(set(alleles_for_prediction))))
+        #
+        #     run_netmhc_cmd = 'rm -f ' + netmhc_output_pfx + '.txt; '+ \
+        #                         netmhc_bin + ' -s ' + \
+        #                         ' -a ' + ','.join(sorted(set(alleles_for_prediction))) + \
+        #                         ' -f ' + mutated_sequences_fa + \
+        #                         ' -l ' + ','.join(map(str, peptide_lengths)) + \
+        #                         ' -inptype 0 ' + \
+        #                         ' -xls ' + \
+        #                         ' -xlsfile ' + netmhc_output_pfx + '.xls ' + \
+        #                         ' > ' + netmhc_output_pfx + '.txt'
+        #     execute_cmd(run_netmhc_cmd)
 
-            run_netmhc_cmd = 'rm -f ' + netmhc_output_pfx + '.txt; '+ \
-                                netmhc4_bin + ' -s ' + \
-                                ' -a ' + ','.join(sorted(set(alleles_for_prediction))) + \
-                                ' -f ' + mutated_sequences_fa + \
-                                ' -l ' + ','.join(map(str, peptide_lengths)) + \
-                                ' -inptype 0 ' + \
-                                ' -xls ' + \
-                                ' -xlsfile ' + netmhc_output_pfx + '.xls ' + \
-                                ' > ' + netmhc_output_pfx + '.txt'
-            execute_cmd(run_netmhc_cmd)
-
-        logger.info('Cleaning up NetMHCpan-4.0 run directory')
+        logger.info('Cleaning up NetMHCpan run directory')
         cleanup_cmd = 'rm -rf ' + output_dir + '/scratch/*/*.pred '
         execute_cmd(cleanup_cmd)
 
     except Exception:
-        logger.error('Error while running NetMHCpan and NetMHC')
+        logger.error('Error while running NetMHCpan')
         logger.error(traceback.format_exc())
         logger.info('Cleaning up NetMHCpan run directory')
         cleanup_cmd = 'rm -rf ' + output_dir + '/scratch/*/*.pred '
@@ -363,41 +362,38 @@ def main():
         exit(1)
 
     #######################
-    ### Parse NetMHCpan 4.0, netMHC 4.0 output; and, generate output files
+    ### Parse NetMHCpan output; and, generate output files
     #######################
     try:
         logger.info('')
-        logger.info('Parse NetMHC-4.0 and NetMHCpan-4.0 output....')
+        logger.info('Parse NetMHCpan output....')
         ###
         ### Parse NetMHCpan and NetMHC output into a single file with binding scores 
         ###
-        parse_output_cmd = "grep -P \"^\\s*\\d+\\s*HLA\\-\"  | sed -r \'s/\\s+/\\t/g\' | sed -r \'s/^\\s*//g\' | cut -f 2-4,10,12-14 | "
+        parse_output_cmd = "grep -P \"^\\s*\\d+\\s*HLA\\-\"  | sed -r \'s/\\s+/\\t/g\' | sed -r \'s/^\\s*//g\' | cut -f 2-4,10,12-16 | "
         combined_output = sample_path_pfx + '.netmhcpan_netmhc_combined.output.txt'
-        generate_output_cmd = 'echo -e \'algorithm\\thla_allele\\tpeptide\\tcore\\ticore\\tscore\\taffinity\\trank\'' + \
+        generate_output_cmd = 'echo -e \'algorithm\\tversion\\thla_allele\\tpeptide\\tcore\\ticore\\tscore_el\\trank_el\\tscore_ba\\trank_ba\\taffinity\'' + \
                                 ' > ' + combined_output + '; ' + \
                                 ' cat ' + netmhcpan_output_pfx + '.txt | ' + \
                                 parse_output_cmd + \
-                                ' awk \'{print \"NetMHCpan-4.0\\t\"$0}\' >> ' + combined_output + '; ' + \
-                                ' cat ' + netmhc_output_pfx + '.txt | ' + \
-                                parse_output_cmd + \
-                                ' awk \'{print \"NetMHC-4.0\\t\"$0}\' >> ' + combined_output + '; '
+                                ' awk \'{print \"NetMHCpan\\t' + netmhcpan_version + '\\t\"$0}\' >> ' + combined_output + '; '
         execute_cmd(generate_output_cmd)
 
         #logger.info('memory usage: ' + str((psutil.Process(os.getpid()).memory_info().rss/1e9)))
 
         # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
-        logger.info('Reading predictions from the two algorithms and evaluating binders')
+        logger.info('Reading predictions and evaluating binders')
         np_df = pd.read_table(combined_output).drop_duplicates()
 
-        ## netMHC-4.0 requires and outputs alleles in a different format; just correct the name
+        ## netMHC requires and outputs alleles in a different format; just correct the name
         np_df['hla_allele'] = np_df['hla_allele'].map(lambda a: reformat_hla_allele(a))
 
         ##
         ## This determination of Strong/Weak binder is based on Swanton's PMID: 30894752. 
         ##
         np_df['binder_class'] = 'non binder' ## keep the casing for 'non' as is; for sorting purpose later
-        np_df.loc[(np_df['affinity'] < 500) | (np_df['rank'] < 2), 'binder_class'] = 'Weak Binder'
-        np_df.loc[(np_df['affinity'] < 50 ) | (np_df['rank'] < 0.5), 'binder_class'] = 'Strong Binder'
+        np_df.loc[np_df['rank_el'] < 2, 'binder_class'] = 'Weak Binder'
+        np_df.loc[np_df['rank_el'] < 0.5, 'binder_class'] = 'Strong Binder'
 
         ##
         ## for each 'peptide', multiple binding predictions will be generated for different HLA alleles and by
@@ -405,14 +401,15 @@ def main():
         ## prediction across the different alleles/algorithms for a given icore. Here, we are sorting by the 
         ## columns below to select the one with best binding prediction and only the top row is retained.
         ##
-        np_by_peptide_df = np_df.sort_values(['binder_class', 'rank', 'affinity'], 
+        np_by_peptide_df = np_df.sort_values(['binder_class', 'rank_el', 'affinity'],
                                     ascending=[True, True, True]).groupby('icore').first().reset_index()
         np_by_peptide_df['best_binder_for_icore_group'] = True
 
         ## annotate np_df with the 'best_binder_for_icore_group'
         np_annotated_df = pd.merge(np_df, np_by_peptide_df, how='left', 
-                        on=['algorithm', 'hla_allele', 'peptide', 'core', 
-                            'icore', 'score', 'affinity', 'rank', 'binder_class'])
+                        on=['algorithm', 'version',
+                            'hla_allele', 'peptide', 'core',
+                            'icore', 'score_el', 'rank_el', 'score_ba', 'rank_ba', 'affinity', 'binder_class'])
 
         np_annotated_df['best_binder_for_icore_group'] = np_annotated_df['best_binder_for_icore_group'].fillna(False)
         np_annotated_df.loc[(np_annotated_df['binder_class'] == 'non binder'), 'binder_class'] = 'Non Binder'
@@ -448,7 +445,7 @@ def main():
         # parse the mutations (with neopeptides/binding predictions) and compile output files.
         maf_output = []
         predictions_output = []
-        logger.info('Annotating MAF with neopeptides that have the stongest binding affinities')
+        logger.info('Annotating MAF with neopeptides that have the strongest binding affinities')
         for mut in mutations:
             # find all neopeptides that are generated for the given mutation.
             mut.match_with_neopeptides(all_neopeptides)
@@ -462,7 +459,7 @@ def main():
         predictions_output_df.to_csv(sample_path_pfx + '.all_neoantigen_predictions.txt', sep='\t', index=False)
         
     except Exception:
-        logger.error('Error while processing NetMHCpan and NetMHC output')
+        logger.error('Error while processing NetMHCpan output')
         logger.error(traceback.format_exc())
         exit(1)
     logger.info('neoantigen-dev pipeline execution completed.\nExiting!')
@@ -531,13 +528,16 @@ def load_transcript_fasta(fa_file):
 class neopeptide(object):
     row = None
     algorithm = ''
+    version = ''
     hla_allele = ''
     peptide = ''
     core = ''
     icore = ''
-    score = 0
+    score_el = 0
+    rank_el = 100
+    score_ba = 0
+    rank_ba = 0
     binding_affinity = 10000
-    rank = 100
     best_binder_for_icore_group = ''
     binder_class = ''
     is_in_wt_peptidome = False
@@ -545,13 +545,16 @@ class neopeptide(object):
     def __init__(self, row):
         self.row = row
         self.algorithm = row['algorithm']
+        self.version = row['version']
         self.hla_allele = row['hla_allele']
         self.peptide = row['peptide']
         self.core = row['core']
         self.icore = row['icore']
-        self.score = row['score']
+        self.score_el = row['score_el']
+        self.rank_el = row['rank_el']
+        self.score_ba = row['score_ba']
+        self.rank_ba = row['rank_ba']
         self.binding_affinity = row['affinity']
-        self.rank = row['rank']
         self.binder_class = row['binder_class']
         self.best_binder_for_icore_group = row['best_binder_for_icore_group']
         self.is_in_wt_peptidome = row['is_in_wt_peptidome']
@@ -593,7 +596,7 @@ class binding_predictions(object):
     def get_best_binder(self):
         if (len(self.get_best_per_icore()) == 0):
             return None
-        return sorted(self.get_best_per_icore(), key=lambda x: x.rank, reverse=False)[0]
+        return sorted(self.get_best_per_icore(), key=lambda x: x.rank_el, reverse=False)[0]
 
 #
 # mutation class holds each row in the maf and has 
@@ -763,22 +766,30 @@ class mutation(object):
             strong_binders = self.predicted_neopeptides.get_strong_binders()
             weak_binders = self.predicted_neopeptides.get_weak_binders()
             row['neo_best_icore_peptide'] = best_binder.icore
-            row['neo_best_rank'] = best_binder.rank
+            row['neo_best_score_el'] = best_binder.score_el
+            row['neo_best_rank_el'] = best_binder.rank_el
+            row['neo_best_score_ba'] = best_binder.score_ba
+            row['neo_best_rank_ba'] = best_binder.rank_ba
             row['neo_best_binding_affinity'] = best_binder.binding_affinity
             row['neo_best_binder_class'] = best_binder.binder_class
             row['neo_best_is_in_wt_peptidome'] = best_binder.is_in_wt_peptidome
             row['neo_best_algorithm'] = best_binder.algorithm
+            row['neo_best_version'] = best_binder.version
             row['neo_best_hla_allele'] = best_binder.hla_allele
             row['neo_n_peptides_evaluated'] = len(self.predicted_neopeptides.get_best_per_icore())
             row['neo_n_strong_binders'] = len(strong_binders)
             row['neo_n_weak_binders'] = len(weak_binders)
         else:
             row['neo_best_icore_peptide'] = ''
-            row['neo_best_rank'] = ''
+            row['neo_best_score_el'] = ''
+            row['neo_best_rank_el'] = ''
+            row['neo_best_score_ba'] = ''
+            row['neo_best_rank_ba'] = ''
             row['neo_best_binding_affinity'] = ''
             row['neo_best_binder_class'] = ''
             row['neo_best_is_in_wt_peptidome'] = ''
             row['neo_best_algorithm'] = ''
+            row['neo_best_version'] = ''
             row['neo_best_hla_allele'] = ''
             row['neo_n_peptides_evaluated'] = 0
             row['neo_n_strong_binders'] = 0
