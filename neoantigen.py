@@ -714,7 +714,10 @@ class mutation(object):
         elif re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc):
             position, ref_allele, alt_allele = re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc).groups()
 
-        elif re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc):
+        elif re.match(r'^c\..*_(-?\d+).*(dup)([ATCG]+)$', hgvsc):
+            position, hgvsc_type, sequence = re.match(r'^c\..*_(-?\d+).*(dup)([ATCG]+)$', hgvsc).groups()
+
+        elif re.match(r'^c\.(-?\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc):
             position, hgvsc_type, sequence = re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc).groups()
 
         else:
@@ -728,12 +731,14 @@ class mutation(object):
         elif hgvsc_type == 'inv':
             ref_allele = sequence
             alt_allele = self.reverse_complement(sequence)
+        ref_allele = ref_allele if position > -1 else ref_allele[position * -1:]
+        alt_allele = alt_allele if position > -1 else alt_allele[position * -1:]
 
         ## start of mutated region in CDS
         cds = re.search(self.cds_seq + '.*', self.cdna_seq).group()
 
-        seq_5p = cds[0:position]
-        seq_3p = cds[position:len(cds)]
+        seq_5p = cds[0:position] if position > -1 else ''
+        seq_3p = cds[position:len(cds)] if position > -1 else cds
 
         #print self.hgvsp + '\t' + self.variant_class + '\t' + self.variant_type + '\t' + self.ref_allele + '\t' + self.alt_allele + \
         #      '\t' + self.cds_position + '\nFull CDS: ' + self.cds_seq + '\nSeq_5: ' + seq_5p + '\nSeq_3' + seq_3p + '\n>mut_1--' + mut_cds_1 + '\n>mut_2--' + mut_cds_2 + '\n>mut_3--' + mut_cds_3
