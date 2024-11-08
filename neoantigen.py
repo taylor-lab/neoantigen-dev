@@ -449,7 +449,7 @@ def main():
         # make a list of all unique peptides
         all_peptides = list(({row['icore']:1 for index, row in np_df.iterrows()}).keys())
 
-        # parallelize and search each icore peptide against the reference peptidome. Note: deliberately hard-coded 4 cores for now.
+        # parallelize and search each icore peptide against the reference peptidome.
         results = Parallel(n_jobs=threads)(delayed(find_in_reference_peptides)(all_peptides, i, threads, ref_aa_str) for i in range(1, threads+1))
 
         # construct a dataframe of the peptides that are found in other protein coding genes
