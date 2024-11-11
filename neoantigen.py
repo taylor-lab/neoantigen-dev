@@ -59,6 +59,11 @@ def main():
     required_arguments.add_argument('--normal_bam',
                         required=False,
                         help='full path to normal bam file. Either --normal_bam or --hla_file are required.')
+    
+    required_arguments.add_argument('--threads',
+                        required=True,
+                        help='modifys the number of parallel threads')
+
 
     optional_arguments = parser.add_argument_group('Optional arguments')
     optional_arguments.add_argument('--hla_file',
@@ -90,6 +95,7 @@ def main():
     output_dir = str(args.output_dir)
     hla_file = str(args.hla_file)
     sample_id = str(args.sample_id)
+    threads = int(args.threads)
     peptide_lengths = [9, 10, 11]
 
     if args.peptide_lengths is not None:
@@ -163,6 +169,7 @@ def main():
     logger.info('\t--normal_bam: ' + normal_bamfile)
     logger.info('\t--maf_file: ' + maf_file)
     logger.info('\t--output_dir: ' + output_dir)
+    logger.info('\t--threads: ' + str(threads))
 
     ### Load from config file
     reference_cdna_file = config.get('Reference Paths', 'GRCh37cdna')
@@ -442,8 +449,8 @@ def main():
         # make a list of all unique peptides
         all_peptides = list(({row['icore']:1 for index, row in np_df.iterrows()}).keys())
 
-        # parallelize and search each icore peptide against the reference peptidome. Note: deliberately hard-coded 4 cores for now.
-        results = Parallel(n_jobs=4)(delayed(find_in_reference_peptides)(all_peptides, i, 4, ref_aa_str) for i in range(1, 5))
+        # parallelize and search each icore peptide against the reference peptidome.
+        results = Parallel(n_jobs=threads)(delayed(find_in_reference_peptides)(all_peptides, i, threads, ref_aa_str) for i in range(1, threads+1))
 
         # construct a dataframe of the peptides that are found in other protein coding genes
         icore_in_reference = pd.DataFrame(data=list({item:1 for sublist in results for item in sublist}.keys()), columns=['icore'])
