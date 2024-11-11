@@ -721,6 +721,10 @@ class mutation(object):
         elif re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc):
             position, ref_allele, alt_allele = re.match(r'^c\.(\d+).*del([ATCG]+)ins([ATCG]+)$', hgvsc).groups()
 
+        elif re.match(r'^c\..*_(\d+).*(dup)([ATCG]+)$', hgvsc):
+            position, hgvsc_type, sequence = re.match(r'^c\..*_(\d+).*(dup)([ATCG]+)$', hgvsc).groups()
+            position = int(position) + 1 
+
         elif re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc):
             position, hgvsc_type, sequence = re.match(r'^c\.(\d+).*(dup|ins|del|inv)([ATCG]+)$', hgvsc).groups()
 
