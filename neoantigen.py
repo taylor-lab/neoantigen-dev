@@ -121,6 +121,8 @@ def main():
 
     if args.force_rerun_netmhc is not None and args.force_rerun_netmhc is True:
         force_netmhc = True
+    else:
+        force_netmhc = False
 
     if args.normal_bam is None and args.hla_file is None:
         print('Error: --normal_bam or --hla_file is required. Exiting.', file=sys.stderr)
