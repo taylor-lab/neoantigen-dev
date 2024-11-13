@@ -168,7 +168,7 @@ def main():
     reference_cdna_file = config.get('Reference Paths', 'GRCh37cdna')
     reference_cds_file = config.get('Reference Paths', 'GRCh37cds')
 
-    netmhcpan_bin = config.get('NetMHCpan', 'netmhcpan_bin_path')
+    netmhcpan_bin = config.get('NetMHCpan', 'netmhcpan4_bin_path')
     netmhcpan_version = config.get('NetMHCpan', 'netmhcpan4_version')
 
     if not os.path.exists(reference_cdna_file) or not os.path.exists(reference_cds_file):
