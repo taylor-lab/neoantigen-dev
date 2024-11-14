@@ -348,6 +348,7 @@ def main():
                                 ' -xls ' + \
                                 ' -xlsfile ' + netmhcpan_output_pfx + '.xls ' + \
                                 ' > ' + netmhcpan_output_pfx + '.txt'
+            print(run_netmhcpan_cmd)                    
             execute_cmd(run_netmhcpan_cmd)
 
         # netmhc_output_pfx = sample_path_pfx + '.netmhc.output'
@@ -407,7 +408,7 @@ def main():
 
         # read combined_output file containing all neopeptides that have been evaluated by both prediction algorithms
         logger.info('Reading predictions and evaluating binders')
-        np_df = pd.read_table(combined_output).drop_duplicates()
+        np_df = pd.read_csv(combined_output, sep= '\t').drop_duplicates()
 
         ## netMHC requires and outputs alleles in a different format; just correct the name
         np_df['hla_allele'] = np_df['hla_allele'].map(lambda a: reformat_hla_allele(a))
