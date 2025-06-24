@@ -396,7 +396,7 @@ def main():
         ###
         parse_output_cmd = "grep -P \"^\\s*\\d+\\s*HLA\\-\"  | sed -r \'s/\\s+/\\t/g\' | sed -r \'s/^\\s*//g\' | cut -f 2-4,10,12-16 | "
         combined_output = sample_path_pfx + '.netmhcpan_netmhc_combined.output.txt'
-        generate_output_cmd = 'echo \'algorithm\\tversion\\thla_allele\\tpeptide\\tcore\\ticore\\tscore_el\\trank_el\\tscore_ba\\trank_ba\\taffinity\'' + \
+        generate_output_cmd = 'printf "algorithm\tversion\thla_allele\tpeptide\tcore\ticore\tscore_el\trank_el\tscore_ba\trank_ba\taffinity\n"' + \
                                 ' > ' + combined_output + '; ' + \
                                 ' cat ' + netmhcpan_output_pfx + '.txt | ' + \
                                 parse_output_cmd + \
